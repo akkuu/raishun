@@ -236,7 +236,7 @@
 
     // ===== 難易度関数 =====
     function getSimultaneous() {
-      return 2;
+      return 1;
     }
 
     function getSpawnInterval(elapsed) {
@@ -333,6 +333,7 @@
           score++;
           hudScore.textContent = score;
           playTapSound();
+          spawnNotes();
           anyHit = true;
         }
       }
@@ -362,11 +363,6 @@
 
       hudTimer.textContent = Math.ceil(timeLeft);
       hudTimer.classList.toggle('warning', timeLeft < 10);
-
-      spawnTimer += delta;
-      if (spawnTimer >= nextSpawnAt) {
-        spawnNotes();
-      }
 
       const laneHeight = laneContainer.offsetHeight;
       for (let i = notes.length - 1; i >= 0; i--) {
