@@ -109,16 +109,6 @@
       background-position: center;
     }
 
-    .grid-line {
-      position: absolute;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: #ccc;
-      z-index: 1;
-      pointer-events: none;
-    }
-
     /* ===== ゲームオーバー画面 ===== */
     #screen-gameover {
       background: #111;
@@ -189,13 +179,21 @@
   </div>
 
   <script>
-    // ===== 音声 =====
-    const tapSound = new Audio('Voishun.mp3');
+    // ===== 音声 (Web Audio API でラグゼロ) =====
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let tapBuffer = null;
+
+    fetch('Voishun.mp3')
+      .then(r => r.arrayBuffer())
+      .then(buf => audioCtx.decodeAudioData(buf))
+      .then(decoded => { tapBuffer = decoded; });
 
     function playTapSound() {
-      const s = tapSound.cloneNode();
-      s.volume = 1.0;
-      s.play();
+      if (!tapBuffer) return;
+      const src = audioCtx.createBufferSource();
+      src.buffer = tapBuffer;
+      src.connect(audioCtx.destination);
+      src.start(0);
     }
 
     // ===== 定数 =====
@@ -278,18 +276,6 @@
       grid.unshift({ lane: newLane, el: createNoteEl(newLane, 0) });
     }
 
-    // ===== 横のグリッド線を描画 =====
-    function addGridLines() {
-      laneContainer.querySelectorAll('.grid-line').forEach(el => el.remove());
-      const lh = laneContainer.offsetHeight;
-      for (let i = 1; i < ROWS; i++) {
-        const line = document.createElement('div');
-        line.className = 'grid-line';
-        line.style.top = (lh / ROWS * i) + 'px';
-        laneContainer.appendChild(line);
-      }
-    }
-
     // ===== ゲームオーバー =====
     function triggerGameOver() {
       STATE = 'gameover';
@@ -304,6 +290,7 @@
     function handleInput(e) {
       if (STATE !== 'playing') return;
       e.preventDefault();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
 
       const rect = laneContainer.getBoundingClientRect();
       const rh   = getRowHeight();
@@ -377,7 +364,6 @@
       hudTimer.classList.remove('warning');
 
       setScreen('game');
-      addGridLines();
       STATE = 'playing';
       initGrid();
       animFrameId = requestAnimationFrame(gameLoop);
