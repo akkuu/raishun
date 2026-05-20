@@ -252,29 +252,25 @@
     }
 
     // ===== note生成 =====
+    function spawnNoteAt(lane, y, speed) {
+      const el = document.createElement('div');
+      el.className = 'note';
+      laneEls[lane].appendChild(el);
+      notes.push({ id: nextNoteId++, lane, el, y, speed, active: true });
+    }
+
     function spawnNotes() {
-      const count = getSimultaneous();
       const speed = getNoteSpeed(elapsedTotal);
+      const lane = Math.floor(Math.random() * 4);
+      spawnNoteAt(lane, -NOTE_HEIGHT, speed);
+    }
 
-      // ランダムに2レーン選択（重複あり）
-      const lanes = Array.from({ length: count }, () => Math.floor(Math.random() * 4));
-
-      lanes.forEach(lane => {
-        const el = document.createElement('div');
-        el.className = 'note';
-        laneEls[lane].appendChild(el);
-
-        notes.push({
-          id: nextNoteId++,
-          lane,
-          el,
-          y: -NOTE_HEIGHT,
-          speed,
-          active: true,
-        });
-      });
-
-      nextSpawnAt = spawnTimer + getSpawnInterval(elapsedTotal);
+    function spawnInitialNotes() {
+      const speed = getNoteSpeed(0);
+      const laneHeight = laneContainer.offsetHeight;
+      const shuffled = [0, 1, 2, 3].sort(() => Math.random() - 0.5);
+      const positions = [laneHeight * 0.6, laneHeight * 0.28, 0];
+      shuffled.slice(0, 3).forEach((lane, i) => spawnNoteAt(lane, positions[i], speed));
     }
 
     // ===== note削除 =====
@@ -399,7 +395,7 @@
 
       setScreen('game');
       STATE = 'playing';
-      spawnNotes();
+      spawnInitialNotes();
       animFrameId = requestAnimationFrame(gameLoop);
     }
 
