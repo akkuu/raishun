@@ -80,13 +80,7 @@
       z-index: 10;
     }
 
-    #hud-score { color: #fff; }
-
-    #hud-timer {
-      color: #fff;
-      transition: color 0.3s;
-    }
-
+    #hud-timer { transition: color 0.3s; }
     #hud-timer.warning { color: #f44; }
 
     #lane-container {
@@ -109,11 +103,20 @@
       position: absolute;
       left: 4px;
       right: 4px;
-      height: 300px;
       border-radius: 6px;
       background-image: url("IMG_E2720[1].JPG");
       background-size: cover;
       background-position: center;
+    }
+
+    .grid-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: #ccc;
+      z-index: 1;
+      pointer-events: none;
     }
 
     /* ===== ゲームオーバー画面 ===== */
@@ -159,7 +162,7 @@
   <div id="screen-start" class="screen">
     <h1>音ゲー</h1>
     <p>
-      落ちてくるnoteをタップしよう<br>
+      一番下のnoteをタップしよう<br>
       note以外をタップするとゲームオーバー<br>
       60秒間でどれだけスコアを稼げるか？
     </p>
@@ -196,12 +199,8 @@
     }
 
     // ===== 定数 =====
-    const TIME_LIMIT     = 60;
-    const NOTE_HEIGHT    = 300;
-    const BASE_SPEED     = 500;
-    const MAX_SPEED      = 1000;
-    const BASE_INTERVAL  = 0.7;
-    const MIN_INTERVAL   = 0.2;
+    const TIME_LIMIT = 60;
+    const ROWS = 4;
 
     // ===== DOM =====
     const screens = {
@@ -220,12 +219,10 @@
     let score         = 0;
     let timeLeft      = TIME_LIMIT;
     let elapsedTotal  = 0;
-    let spawnTimer    = 0;
-    let nextSpawnAt   = 0;
-    let notes         = [];
-    let nextNoteId    = 0;
     let lastTimestamp = null;
     let animFrameId   = null;
+    // grid[0]=一番上の行, grid[3]=一番下の行, 各要素 {lane, el}
+    let grid = [];
 
     // ===== 画面切り替え =====
     function setScreen(name) {
@@ -234,86 +231,84 @@
       });
     }
 
-    // ===== 難易度関数 =====
-    function getSimultaneous() {
-      return 1;
+    // ===== グリッド寸法 =====
+    function getRowHeight() {
+      return laneContainer.offsetHeight / ROWS;
     }
 
-    function getSpawnInterval(elapsed) {
-      const t = Math.min(elapsed / TIME_LIMIT, 1.0);
-      const base = BASE_INTERVAL + (MIN_INTERVAL - BASE_INTERVAL) * t;
-      // ±30%のランダムなジッター
-      return base * (0.7 + Math.random() * 0.6);
+    function getLaneWidth() {
+      return laneContainer.offsetWidth / 4;
     }
 
-    function getNoteSpeed(elapsed) {
-      const t = Math.min(elapsed / TIME_LIMIT, 1.0);
-      return BASE_SPEED + (MAX_SPEED - BASE_SPEED) * t;
-    }
-
-    // ===== note生成 =====
-    function spawnNoteAt(lane, y, speed) {
+    // ===== note要素を生成して指定行に配置 =====
+    function createNoteEl(lane, row) {
+      const rh = getRowHeight();
       const el = document.createElement('div');
       el.className = 'note';
+      el.style.height = (rh - 8) + 'px';
+      el.style.top    = (row * rh + 4) + 'px';
       laneEls[lane].appendChild(el);
-      notes.push({ id: nextNoteId++, lane, el, y, speed, active: true });
+      return el;
     }
 
-    function spawnNotes() {
-      const speed = getNoteSpeed(elapsedTotal);
-      const lane = Math.floor(Math.random() * 4);
-      spawnNoteAt(lane, -NOTE_HEIGHT, speed);
+    // ===== ゲーム開始時にグリッドを初期化 =====
+    function initGrid() {
+      // 4レーンをシャッフルして各行に割り当て（同じ行に複数出ない）
+      const lanes = [0, 1, 2, 3].sort(() => Math.random() - 0.5);
+      grid = lanes.map((lane, row) => ({ lane, el: createNoteEl(lane, row) }));
     }
 
-    function spawnInitialNotes() {
-      const speed = getNoteSpeed(0);
-      const laneHeight = laneContainer.offsetHeight;
-      const shuffled = [0, 1, 2, 3].sort(() => Math.random() - 0.5);
-      const positions = [laneHeight * 0.6, laneHeight * 0.28, 0];
-      shuffled.slice(0, 3).forEach((lane, i) => spawnNoteAt(lane, positions[i], speed));
+    // ===== タップ後にグリッドを1段進める =====
+    // 呼び出し前に grid.pop() でタテ3(一番下)を削除済みであること
+    function advanceGrid() {
+      const rh = getRowHeight();
+
+      // 残り3つ(タテ0〜2)をそれぞれ1段下へ移動
+      grid.forEach((note, i) => {
+        note.el.style.top = ((i + 1) * rh + 4) + 'px';
+      });
+
+      // 上段の新しいnoteのレーンを決定（既存と重ならないものを優先）
+      const existingLanes = new Set(grid.map(n => n.lane));
+      const freeLanes = [0, 1, 2, 3].filter(l => !existingLanes.has(l));
+      const newLane = freeLanes.length > 0
+        ? freeLanes[Math.floor(Math.random() * freeLanes.length)]
+        : Math.floor(Math.random() * 4);
+
+      grid.unshift({ lane: newLane, el: createNoteEl(newLane, 0) });
     }
 
-    // ===== note削除 =====
-    function removeNote(note) {
-      note.active = false;
-      note.el.remove();
+    // ===== 横のグリッド線を描画 =====
+    function addGridLines() {
+      laneContainer.querySelectorAll('.grid-line').forEach(el => el.remove());
+      const lh = laneContainer.offsetHeight;
+      for (let i = 1; i < ROWS; i++) {
+        const line = document.createElement('div');
+        line.className = 'grid-line';
+        line.style.top = (lh / ROWS * i) + 'px';
+        laneContainer.appendChild(line);
+      }
     }
 
     // ===== ゲームオーバー =====
     function triggerGameOver() {
       STATE = 'gameover';
       cancelAnimationFrame(animFrameId);
-      notes.forEach(n => { if (n.active) n.el.remove(); });
-      notes = [];
+      grid.forEach(note => note.el.remove());
+      grid = [];
       finalScoreVal.textContent = score;
       setScreen('gameover');
     }
 
     // ===== タップ判定 =====
-    function findHitNote(tapX, tapY) {
-      const laneWidth = laneContainer.offsetWidth / 4;
-
-      for (const note of notes) {
-        if (!note.active) continue;
-        const left = note.lane * laneWidth;
-        const right = left + laneWidth;
-        const top  = note.y;
-        const bot  = top + NOTE_HEIGHT;
-
-        if (tapX >= left && tapX <= right && tapY >= top && tapY <= bot) {
-          return note;
-        }
-      }
-      return null;
-    }
-
     function handleInput(e) {
       if (STATE !== 'playing') return;
       e.preventDefault();
 
       const rect = laneContainer.getBoundingClientRect();
+      const rh   = getRowHeight();
+      const lw   = getLaneWidth();
 
-      // 複数タッチをすべて処理
       const points = e.changedTouches
         ? Array.from(e.changedTouches).map(t => ({
             x: t.clientX - rect.left,
@@ -323,24 +318,28 @@
 
       let anyHit = false;
       for (const p of points) {
-        const hit = findHitNote(p.x, p.y);
-        if (hit) {
-          removeNote(hit);
+        const tapRow  = Math.floor(p.y / rh);
+        const tapLane = Math.floor(p.x / lw);
+
+        // 有効: 一番下の行(タテ1 = ROWS-1)の正しいレーンをタップ
+        if (tapRow === ROWS - 1 && grid[ROWS - 1] && grid[ROWS - 1].lane === tapLane) {
+          grid[ROWS - 1].el.remove();
+          grid.pop();
           score++;
           hudScore.textContent = score;
           playTapSound();
-          spawnNotes();
+          advanceGrid();
           anyHit = true;
+          break;
         }
       }
 
-      // どの指もnoteに当たらなかったらゲームオーバー
       if (!anyHit) {
         triggerGameOver();
       }
     }
 
-    // ===== ゲームループ =====
+    // ===== ゲームループ (タイマーのみ) =====
     function gameLoop(timestamp) {
       if (STATE !== 'playing') return;
 
@@ -360,21 +359,6 @@
       hudTimer.textContent = Math.ceil(timeLeft);
       hudTimer.classList.toggle('warning', timeLeft < 10);
 
-      const laneHeight = laneContainer.offsetHeight;
-      for (let i = notes.length - 1; i >= 0; i--) {
-        const note = notes[i];
-        if (!note.active) continue;
-
-        note.y += note.speed * delta;
-        note.el.style.top = note.y + 'px';
-
-        if (note.y >= laneHeight) {
-          triggerGameOver();
-          return;
-        }
-      }
-
-      notes = notes.filter(n => n.active);
       animFrameId = requestAnimationFrame(gameLoop);
     }
 
@@ -383,19 +367,19 @@
       score         = 0;
       timeLeft      = TIME_LIMIT;
       elapsedTotal  = 0;
-      spawnTimer    = 0;
-      nextSpawnAt   = 0;
       lastTimestamp = null;
-      nextNoteId    = 0;
-      notes         = [];
+
+      grid.forEach(note => note.el.remove());
+      grid = [];
 
       hudScore.textContent = '0';
       hudTimer.textContent = TIME_LIMIT;
       hudTimer.classList.remove('warning');
 
       setScreen('game');
+      addGridLines();
       STATE = 'playing';
-      spawnInitialNotes();
+      initGrid();
       animFrameId = requestAnimationFrame(gameLoop);
     }
 
