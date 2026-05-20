@@ -186,6 +186,15 @@
   </div>
 
   <script>
+    // ===== 音声 =====
+    const tapSound = new Audio('Voishun.mp3');
+
+    function playTapSound() {
+      const s = tapSound.cloneNode();
+      s.volume = 1.0;
+      s.play();
+    }
+
     // ===== 定数 =====
     const TIME_LIMIT     = 60;
     const NOTE_HEIGHT    = 300;
@@ -323,6 +332,7 @@
           removeNote(hit);
           score++;
           hudScore.textContent = score;
+          playTapSound();
           anyHit = true;
         }
       }
