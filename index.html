@@ -145,6 +145,17 @@
       color: #ff0;
     }
 
+    #final-rank {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    #final-rank span {
+      font-size: 40px;
+      color: #ff69b4;
+    }
+
     #btn-retry {
       margin-top: 16px;
       padding: 16px 48px;
@@ -187,6 +198,7 @@
   <div id="screen-gameover" class="screen">
     <h2>GAME OVER</h2>
     <div id="final-score">SCORE: <span id="final-score-value">0</span></div>
+    <div id="final-rank">あなたは<span id="final-rank-value"></span>です</div>
     <button id="btn-retry">RETRY</button>
   </div>
 
@@ -288,6 +300,16 @@
       grid.unshift({ lane: newLane, el: createNoteEl(newLane, 0) });
     }
 
+    // ===== ランク判定 =====
+    function getRank(s) {
+      if (s < 50)  return '八島';
+      if (s < 80)  return '農高生';
+      if (s < 120) return '非発展';
+      if (s < 180) return '発展';
+      if (s < 200) return 'ラージャン';
+      return '野駿';
+    }
+
     // ===== ゲームオーバー =====
     function triggerGameOver() {
       STATE = 'gameover';
@@ -295,6 +317,7 @@
       grid.forEach(note => note.el.remove());
       grid = [];
       finalScoreVal.textContent = score;
+      document.getElementById('final-rank-value').textContent = getRank(score);
       setScreen('gameover');
     }
 
