@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>音ゲー</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #fff;
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      touch-action: none;
+    }
+
+    .screen {
+      position: fixed;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ===== スタート画面 ===== */
+    #screen-start {
+      background: #111;
+      color: #fff;
+      gap: 24px;
+    }
+
+    #screen-start h1 {
+      font-size: 48px;
+      font-weight: 700;
+      letter-spacing: 4px;
+    }
+
+    #screen-start p {
+      font-size: 14px;
+      color: #aaa;
+      text-align: center;
+      line-height: 1.8;
+      padding: 0 32px;
+    }
+
+    #btn-start {
+      margin-top: 16px;
+      padding: 16px 48px;
+      font-size: 20px;
+      font-weight: 700;
+      background: #fff;
+      color: #111;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 2px;
+    }
+
+    /* ===== ゲーム画面 ===== */
+    #screen-game {
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-start;
+    }
+
+    #hud {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 20px;
+      height: 60px;
+      background: #111;
+      color: #fff;
+      font-size: 24px;
+      font-weight: 700;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    #hud-score { color: #fff; }
+
+    #hud-timer {
+      color: #fff;
+      transition: color 0.3s;
+    }
+
+    #hud-timer.warning { color: #f44; }
+
+    #lane-container {
+      flex: 1;
+      display: flex;
+      position: relative;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .lane {
+      flex: 1;
+      position: relative;
+      border-right: 2px solid #ccc;
+    }
+
+    .lane:last-child { border-right: none; }
+
+    .note {
+      position: absolute;
+      left: 4px;
+      right: 4px;
+      height: 120px;
+      background: #111;
+      border-radius: 6px;
+    }
+
+    /* ===== ゲームオーバー画面 ===== */
+    #screen-gameover {
+      background: #111;
+      color: #fff;
+      gap: 20px;
+    }
+
+    #screen-gameover h2 {
+      font-size: 40px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      color: #f44;
+    }
+
+    #final-score {
+      font-size: 32px;
+      font-weight: 700;
+    }
+
+    #final-score span {
+      font-size: 48px;
+      color: #ff0;
+    }
+
+    #btn-retry {
+      margin-top: 16px;
+      padding: 16px 48px;
+      font-size: 20px;
+      font-weight: 700;
+      background: #fff;
+      color: #111;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 2px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="screen-start" class="screen">
+    <h1>音ゲー</h1>
+    <p>
+      落ちてくる黒いnoteをタップしよう<br>
+      note以外をタップするとゲームオーバー<br>
+      60秒間でどれだけスコアを稼げるか？
+    </p>
+    <button id="btn-start">START</button>
+  </div>
+
+  <div id="screen-game" class="screen">
+    <div id="hud">
+      <div id="hud-score">0</div>
+      <div id="hud-timer">60</div>
+    </div>
+    <div id="lane-container">
+      <div class="lane" id="lane-0"></div>
+      <div class="lane" id="lane-1"></div>
+      <div class="lane" id="lane-2"></div>
+      <div class="lane" id="lane-3"></div>
+    </div>
+  </div>
+
+  <div id="screen-gameover" class="screen">
+    <h2>GAME OVER</h2>
+    <div id="final-score">SCORE: <span id="final-score-value">0</span></div>
+    <button id="btn-retry">RETRY</button>
+  </div>
+
+  <script>
+    // ===== 定数 =====
+    const TIME_LIMIT     = 60;
+    const NOTE_HEIGHT    = 120;
+    const BASE_SPEED     = 500;
+    const MAX_SPEED      = 1000;
+    const BASE_INTERVAL  = 1.4;
+    const MIN_INTERVAL   = 0.4;
+
+    // ===== DOM =====
+    const screens = {
+      start:    document.getElementById('screen-start'),
+      game:     document.getElementById('screen-game'),
+      gameover: document.getElementById('screen-gameover'),
+    };
+    const hudScore      = document.getElementById('hud-score');
+    const hudTimer      = document.getElementById('hud-timer');
+    const finalScoreVal = document.getElementById('final-score-value');
+    const laneContainer = document.getElementById('lane-container');
+    const laneEls       = [0, 1, 2, 3].map(i => document.getElementById('lane-' + i));
+
+    // ===== ゲーム状態 =====
+    let STATE         = 'start';
+    let score         = 0;
+    let timeLeft      = TIME_LIMIT;
+    let elapsedTotal  = 0;
+    let spawnTimer    = 0;
+    let notes         = [];
+    let nextNoteId    = 0;
+    let lastTimestamp = null;
+    let animFrameId   = null;
+
+    // ===== 画面切り替え =====
+    function setScreen(name) {
+      Object.entries(screens).forEach(([key, el]) => {
+        el.style.display = key === name ? 'flex' : 'none';
+      });
+    }
+
+    // ===== 難易度関数 =====
+    function getSimultaneous(elapsed) {
+      return 2;
+    }
+
+    function getSpawnInterval(elapsed) {
+      const t = Math.min(elapsed / TIME_LIMIT, 1.0);
+      return BASE_INTERVAL + (MIN_INTERVAL - BASE_INTERVAL) * t;
+    }
+
+    function getNoteSpeed(elapsed) {
+      const t = Math.min(elapsed / TIME_LIMIT, 1.0);
+      return BASE_SPEED + (MAX_SPEED - BASE_SPEED) * t;
+    }
+
+    // ===== Fisher-Yates シャッフル =====
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    // ===== note生成 =====
+    function spawnNotes() {
+      const count = getSimultaneous(elapsedTotal);
+      const speed = getNoteSpeed(elapsedTotal);
+      const lanes = Array.from({ length: count }, () => Math.floor(Math.random() * 4));
+
+      lanes.forEach(lane => {
+        const el = document.createElement('div');
+        el.className = 'note';
+        laneEls[lane].appendChild(el);
+
+        notes.push({
+          id: nextNoteId++,
+          lane,
+          el,
+          y: -NOTE_HEIGHT,
+          speed,
+          active: true,
+        });
+      });
+    }
+
+    // ===== note削除 =====
+    function removeNote(note) {
+      note.active = false;
+      note.el.remove();
+    }
+
+    // ===== ゲームオーバー =====
+    function triggerGameOver() {
+      STATE = 'gameover';
+      cancelAnimationFrame(animFrameId);
+      notes.forEach(n => { if (n.active) n.el.remove(); });
+      notes = [];
+      finalScoreVal.textContent = score;
+      setScreen('gameover');
+    }
+
+    // ===== タップ判定 =====
+    function findHitNote(tapX, tapY) {
+      const laneWidth = laneContainer.offsetWidth / 4;
+
+      for (const note of notes) {
+        if (!note.active) continue;
+        const left  = note.lane * laneWidth;
+        const right = left + laneWidth;
+        const top   = note.y;
+        const bot   = top + NOTE_HEIGHT;
+
+        if (tapX >= left && tapX <= right && tapY >= top && tapY <= bot) {
+          return note;
+        }
+      }
+      return null;
+    }
+
+    function handleInput(e) {
+      if (STATE !== 'playing') return;
+      e.preventDefault();
+
+      const rect = laneContainer.getBoundingClientRect();
+      let clientX, clientY;
+
+      if (e.touches) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+
+      const tapX = clientX - rect.left;
+      const tapY = clientY - rect.top;
+
+      const hit = findHitNote(tapX, tapY);
+      if (hit) {
+        removeNote(hit);
+        score++;
+        hudScore.textContent = score;
+      } else {
+        triggerGameOver();
+      }
+    }
+
+    // ===== ゲームループ =====
+    function gameLoop(timestamp) {
+      if (STATE !== 'playing') return;
+
+      const rawDelta = lastTimestamp === null ? 0 : (timestamp - lastTimestamp) / 1000;
+      const delta = Math.min(rawDelta, 0.1);
+      lastTimestamp = timestamp;
+
+      elapsedTotal += delta;
+      timeLeft -= delta;
+
+      if (timeLeft <= 0) {
+        timeLeft = 0;
+        triggerGameOver();
+        return;
+      }
+
+      const timeDisplay = Math.ceil(timeLeft);
+      hudTimer.textContent = timeDisplay;
+      hudTimer.classList.toggle('warning', timeLeft < 10);
+
+      spawnTimer += delta;
+      if (spawnTimer >= getSpawnInterval(elapsedTotal)) {
+        spawnTimer = 0;
+        spawnNotes();
+      }
+
+      const laneHeight = laneContainer.offsetHeight;
+      for (let i = notes.length - 1; i >= 0; i--) {
+        const note = notes[i];
+        if (!note.active) continue;
+
+        note.y += note.speed * delta;
+        note.el.style.top = note.y + 'px';
+
+        if (note.y >= laneHeight) {
+          triggerGameOver();
+          return;
+        }
+      }
+
+      notes = notes.filter(n => n.active);
+      animFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    // ===== ゲーム開始 =====
+    function startGame() {
+      score        = 0;
+      timeLeft     = TIME_LIMIT;
+      elapsedTotal = 0;
+      spawnTimer   = 0;
+      lastTimestamp = null;
+      nextNoteId   = 0;
+      notes        = [];
+
+      hudScore.textContent = '0';
+      hudTimer.textContent = TIME_LIMIT;
+      hudTimer.classList.remove('warning');
+
+      setScreen('game');
+      STATE = 'playing';
+      spawnNotes();
+      animFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    // ===== イベント登録 =====
+    document.getElementById('btn-start').addEventListener('click', startGame);
+    document.getElementById('btn-retry').addEventListener('click', startGame);
+
+    laneContainer.addEventListener('touchstart', handleInput, { passive: false });
+    laneContainer.addEventListener('mousedown', handleInput);
+
+    // ===== 初期表示 =====
+    setScreen('start');
+  </script>
+</body>
+</html>
