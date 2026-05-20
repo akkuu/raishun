@@ -200,7 +200,7 @@
 
     // ===== 定数 =====
     const TIME_LIMIT = 60;
-    const ROWS = 4;
+    const ROWS = 3;
 
     // ===== DOM =====
     const screens = {
@@ -255,7 +255,7 @@
     function initGrid() {
       // 4レーンをシャッフルして各行に割り当て（同じ行に複数出ない）
       const lanes = [0, 1, 2, 3].sort(() => Math.random() - 0.5);
-      grid = lanes.map((lane, row) => ({ lane, el: createNoteEl(lane, row) }));
+      grid = lanes.slice(0, ROWS).map((lane, row) => ({ lane, el: createNoteEl(lane, row) }));
     }
 
     // ===== タップ後にグリッドを1段進める =====
