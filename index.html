@@ -290,7 +290,6 @@
     function handleInput(e) {
       if (STATE !== 'playing') return;
       e.preventDefault();
-      if (audioCtx.state === 'suspended') audioCtx.resume();
 
       const rect = laneContainer.getBoundingClientRect();
       const rh   = getRowHeight();
@@ -351,6 +350,7 @@
 
     // ===== ゲーム開始 =====
     function startGame() {
+      audioCtx.resume();
       score         = 0;
       timeLeft      = TIME_LIMIT;
       elapsedTotal  = 0;
