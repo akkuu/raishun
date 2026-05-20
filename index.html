@@ -67,26 +67,38 @@
     }
 
     #hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
       display: flex;
-      justify-content: space-between;
+      flex-direction: column;
       align-items: center;
-      padding: 0 20px;
-      height: 60px;
-      background: #111;
-      color: #fff;
-      font-size: 24px;
-      font-weight: 700;
-      flex-shrink: 0;
+      padding-top: 8px;
       z-index: 10;
+      pointer-events: none;
     }
 
-    #hud-timer { transition: color 0.3s; }
+    #hud-score {
+      font-size: 240px;
+      font-weight: 700;
+      color: #ff69b4;
+      line-height: 1;
+    }
+
+    #hud-timer {
+      font-size: 120px;
+      font-weight: 700;
+      color: orange;
+      line-height: 1;
+    }
+
     #hud-timer.warning { color: #f44; }
 
     #lane-container {
-      flex: 1;
+      position: absolute;
+      inset: 0;
       display: flex;
-      position: relative;
       background: #fff;
       overflow: hidden;
     }
@@ -197,7 +209,7 @@
     }
 
     // ===== 定数 =====
-    const TIME_LIMIT = 60;
+    const TIME_LIMIT = 20;
     const ROWS = 3;
 
     // ===== DOM =====
