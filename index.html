@@ -290,12 +290,7 @@
         note.el.style.top = ((i + 1) * rh + 4) + 'px';
       });
 
-      // 上段の新しいnoteのレーンを決定（既存と重ならないものを優先）
-      const existingLanes = new Set(grid.map(n => n.lane));
-      const freeLanes = [0, 1, 2, 3].filter(l => !existingLanes.has(l));
-      const newLane = freeLanes.length > 0
-        ? freeLanes[Math.floor(Math.random() * freeLanes.length)]
-        : Math.floor(Math.random() * 4);
+      const newLane = Math.floor(Math.random() * 4);
 
       grid.unshift({ lane: newLane, el: createNoteEl(newLane, 0) });
     }
