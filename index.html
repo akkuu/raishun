@@ -560,7 +560,8 @@
         const list = document.getElementById('ranking-list');
         list.innerHTML = rankings.map((r, i) => {
           const isMe = r.nickname === nickname && r.score === score;
-          return `<li class="${isMe ? 'me' : ''}"><span>${i + 1}. ${r.nickname}</span><span>${r.score}</span></li>`;
+          const rank = getRank(r.score, gameMode);
+          return `<li class="${isMe ? 'me' : ''}"><span>${i + 1}. ${r.nickname}</span><span>${r.score} ${rank.name}</span></li>`;
         }).join('');
       } catch (err) {
         console.error('ranking error:', err);
