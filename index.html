@@ -717,12 +717,9 @@
       takeDamage(tapLane);
     }
 
-    async function startMusicGame() {
-      // awaitより前に呼ぶことでブラウザのautoplayブロックを回避
-      bgmAudio.currentTime = 0;
-      bgmAudio.play().catch(() => {});
+    function startMusicGame() {
+      audioCtx.resume();
 
-      await audioCtx.resume();
       score         = 0;
       hp            = 1000;
       lastSpawnLane = -1;
@@ -752,7 +749,7 @@
     }
 
     function restartGame() {
-      if (gameMode === 'music') startMusicGame().catch(console.error);
+      if (gameMode === 'music') startMusicGame();
       else startGame();
     }
 
@@ -767,6 +764,7 @@
           if (!nickname) { input.focus(); return; }
           restartGame();
         } else if (STATE === 'gameover') {
+          if (gameMode === 'music') { bgmAudio.currentTime = 0; bgmAudio.play(); }
           restartGame();
         }
         return;
@@ -800,7 +798,7 @@
       const input = document.getElementById('nickname-input');
       nickname = input.value.trim();
       if (!nickname) { input.focus(); return; }
-      restartGame();
+      startGame();
     }
 
     document.getElementById('btn-mode-score').addEventListener('click', () => {
@@ -814,10 +812,21 @@
       gameMode = 'music';
       document.getElementById('btn-mode-music').classList.add('active');
       document.getElementById('btn-mode-score').classList.remove('active');
-      checkNicknameAndStart();
+      const input = document.getElementById('nickname-input');
+      nickname = input.value.trim();
+      if (!nickname) { input.focus(); return; }
+      bgmAudio.currentTime = 0;
+      bgmAudio.play();
+      startMusicGame();
     });
 
-    document.getElementById('btn-retry').addEventListener('click', restartGame);
+    document.getElementById('btn-retry').addEventListener('click', () => {
+      if (gameMode === 'music') {
+        bgmAudio.currentTime = 0;
+        bgmAudio.play();
+      }
+      restartGame();
+    });
 
     laneContainer.addEventListener('touchstart', handleInput, { passive: false });
     laneContainer.addEventListener('mousedown', handleInput);
