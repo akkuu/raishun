@@ -264,6 +264,7 @@
       <button class="btn-mode active" id="btn-mode-score">スコアアタック</button>
       <button class="btn-mode" id="btn-mode-music">ミュージック</button>
     </div>
+    <p id="music-loading" style="display:none;color:#aaf;font-size:18px;letter-spacing:2px;">ロード中です...</p>
   </div>
 
   <div id="screen-game" class="screen">
@@ -723,7 +724,11 @@
     }
 
     async function startMusicGame() {
+      if (!bgmBuffer) {
+        document.getElementById('music-loading').style.display = 'block';
+      }
       await Promise.all([audioCtx.resume(), bgmReady]);
+      document.getElementById('music-loading').style.display = 'none';
       score         = 0;
       hp            = 1000;
       lastSpawnLane = -1;
