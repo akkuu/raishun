@@ -341,7 +341,7 @@
       .then(decoded => { gahoBuffer = decoded; });
 
     let bgmBuffer = null;
-    fetch('Kurenaishin.mp3')
+    const bgmReady = fetch('Kurenaishin.mp3')
       .then(r => r.arrayBuffer())
       .then(buf => audioCtx.decodeAudioData(buf))
       .then(decoded => { bgmBuffer = decoded; });
@@ -722,7 +722,7 @@
     }
 
     async function startMusicGame() {
-      await audioCtx.resume();
+      await Promise.all([audioCtx.resume(), bgmReady]);
       score         = 0;
       hp            = 1000;
       lastSpawnLane = -1;
