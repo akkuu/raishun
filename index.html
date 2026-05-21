@@ -169,8 +169,49 @@
       color: #ff69b4;
     }
 
+    #nickname-input {
+      padding: 12px 20px;
+      font-size: 18px;
+      border: none;
+      border-radius: 8px;
+      text-align: center;
+      width: 240px;
+      outline: none;
+    }
+
+    #nickname-input::placeholder { color: #aaa; }
+
+    #ranking-wrap {
+      width: 280px;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    #ranking-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #aaa;
+      margin-bottom: 6px;
+      text-align: center;
+    }
+
+    #ranking-list {
+      list-style: none;
+      width: 100%;
+    }
+
+    #ranking-list li {
+      font-size: 15px;
+      padding: 4px 0;
+      border-bottom: 1px solid #333;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    #ranking-list li.me { color: #ff69b4; }
+
     #btn-retry {
-      margin-top: 16px;
+      margin-top: 8px;
       padding: 16px 48px;
       font-size: 20px;
       font-weight: 700;
@@ -187,6 +228,7 @@
 
   <div id="screen-start" class="screen">
     <h1>雷駿先輩</h1>
+    <input id="nickname-input" type="text" placeholder="ニックネームを入力" maxlength="12">
     <button id="btn-start">START</button>
   </div>
 
@@ -207,10 +249,42 @@
     <h2>GAME OVER</h2>
     <div id="final-score">SCORE: <span id="final-score-value">0</span></div>
     <div id="final-rank">あなたは<span id="final-rank-value"></span>です</div>
+    <div id="ranking-wrap">
+      <div id="ranking-title">ランキング</div>
+      <ol id="ranking-list"></ol>
+    </div>
     <button id="btn-retry">RETRY</button>
   </div>
 
-  <script>
+  <script type="module">
+    // ===== Firebase =====
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getFirestore, collection, addDoc, getDocs, orderBy, query, limit, serverTimestamp }
+      from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBYH3HbOtNWO9luF68n6jLou9SZwwlBQCE",
+      authDomain: "raishn-c40e8.firebaseapp.com",
+      projectId: "raishn-c40e8",
+      storageBucket: "raishn-c40e8.firebasestorage.app",
+      messagingSenderId: "575446359290",
+      appId: "1:575446359290:web:e3cde3f05cbe5d5854fd43"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db  = getFirestore(app);
+
+    async function saveScore(nickname, score) {
+      await addDoc(collection(db, 'scores'), { nickname, score, timestamp: serverTimestamp() });
+    }
+
+    async function loadRanking() {
+      const q = query(collection(db, 'scores'), orderBy('score', 'desc'), limit(10));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => d.data());
+    }
+
+    let nickname = '';
+
     // ===== 音声 (Web Audio API でラグゼロ) =====
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     let tapBuffer = null;
@@ -328,7 +402,7 @@
     }
 
     // ===== ゲームオーバー =====
-    function triggerGameOver() {
+    async function triggerGameOver() {
       STATE = 'gameover';
       cancelAnimationFrame(animFrameId);
       grid.forEach(note => note.el.remove());
@@ -336,6 +410,19 @@
       finalScoreVal.textContent = score;
       document.getElementById('final-rank-value').textContent = getRank(score);
       setScreen('gameover');
+
+      // スコア保存 & ランキング表示
+      try {
+        await saveScore(nickname, score);
+        const rankings = await loadRanking();
+        const list = document.getElementById('ranking-list');
+        list.innerHTML = rankings.map((r, i) => {
+          const isMe = r.nickname === nickname && r.score === score;
+          return `<li class="${isMe ? 'me' : ''}"><span>${i + 1}. ${r.nickname}</span><span>${r.score}</span></li>`;
+        }).join('');
+      } catch (err) {
+        console.error('ranking error:', err);
+      }
     }
 
     // ===== ミス時: 赤点滅2回してからゲームオーバー =====
@@ -476,7 +563,12 @@
     });
 
     // ===== イベント登録 =====
-    document.getElementById('btn-start').addEventListener('click', startGame);
+    document.getElementById('btn-start').addEventListener('click', () => {
+      const input = document.getElementById('nickname-input');
+      nickname = input.value.trim();
+      if (!nickname) { input.focus(); return; }
+      startGame();
+    });
     document.getElementById('btn-retry').addEventListener('click', startGame);
 
     laneContainer.addEventListener('touchstart', handleInput, { passive: false });
