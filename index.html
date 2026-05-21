@@ -132,11 +132,19 @@
       left: 0;
       right: 0;
       height: 30%;
-      border-top: 4px solid #ff69b4;
       background: rgba(255, 105, 180, 0.08);
       z-index: 5;
       pointer-events: none;
       display: none;
+    }
+
+    #hit-zone::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      border-top: 4px solid #ff69b4;
     }
 
     #lane-container {
@@ -564,6 +572,8 @@
         : [{ x: e.clientX - rect.left, y: e.clientY - rect.top }];
 
       if (gameMode === 'music') {
+        const hitZoneTopY = laneContainer.offsetHeight * (1 - HIT_ZONE_RATIO);
+        if (points[0].y < hitZoneTopY) return;
         handleMusicTap(Math.floor(points[0].x / lw));
         return;
       }
@@ -729,8 +739,6 @@
           return;
         }
       }
-      // ヒットゾーンにnoteがないのにタップ → ダメージ
-      takeDamage(tapLane);
     }
 
     function startMusicGame() {
