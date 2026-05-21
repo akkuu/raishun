@@ -12,6 +12,11 @@
       50%       { opacity: 1; }
     }
 
+    @keyframes flashTap {
+      0%   { opacity: 0.6; }
+      100% { opacity: 0; }
+    }
+
     html, body {
       width: 100%;
       height: 100%;
@@ -600,6 +605,14 @@
       });
     }
 
+    // ===== レーンフラッシュ =====
+    function flashLane(lane) {
+      const el = document.createElement('div');
+      el.style.cssText = 'position:absolute;inset:0;background:rgba(180,220,255,0.55);pointer-events:none;animation:flashTap 0.25s ease-out forwards;z-index:15;';
+      laneEls[lane].appendChild(el);
+      el.addEventListener('animationend', () => el.remove());
+    }
+
     // ===== タップ判定 =====
     function handleInput(e) {
       if (STATE !== 'playing') return;
@@ -618,7 +631,9 @@
       if (gameMode === 'music') {
         const hitZoneTopY = laneContainer.offsetHeight * (1 - HIT_ZONE_RATIO);
         if (points[0].y < hitZoneTopY) return;
-        handleMusicTap(Math.floor(points[0].x / lw));
+        const tapLane = Math.floor(points[0].x / lw);
+        flashLane(tapLane);
+        handleMusicTap(tapLane);
         return;
       }
 
@@ -629,6 +644,7 @@
         const tapLane = Math.floor(p.x / lw);
 
         if (tapRow === ROWS - 1 && grid[ROWS - 1] && grid[ROWS - 1].lane === tapLane) {
+          flashLane(tapLane);
           grid[ROWS - 1].el.remove();
           grid.pop();
           score++;
