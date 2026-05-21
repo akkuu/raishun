@@ -173,6 +173,12 @@
       background-position: center;
     }
 
+    .note-heal {
+      background-image: url("kireishun.JPG");
+      outline: 3px solid #00ff88;
+      box-shadow: 0 0 12px #00ff88;
+    }
+
     /* ===== ゲームオーバー画面 ===== */
     #screen-gameover {
       background-color: #111;
@@ -684,12 +690,13 @@
       let lane;
       do { lane = Math.floor(Math.random() * 4); } while (lane === lastSpawnLane);
       lastSpawnLane = lane;
+      const heal = Math.random() < 1 / 50;
       const el = document.createElement('div');
-      el.className = 'note';
+      el.className = heal ? 'note note-heal' : 'note';
       el.style.height = noteH + 'px';
       el.style.top    = -noteH + 'px';
       laneEls[lane].appendChild(el);
-      fallingNotes.push({ lane, el, startTime: audioCtx.currentTime });
+      fallingNotes.push({ lane, el, startTime: audioCtx.currentTime, heal });
     }
 
     function musicGameLoop() {
@@ -733,8 +740,13 @@
         if (note.lane === tapLane && noteBot > hitZoneTop && noteTop < screenH) {
           note.el.remove();
           fallingNotes.splice(i, 1);
-          score++;
-          hudScore.textContent = score;
+          if (note.heal) {
+            hp = Math.min(hp + 1000, 9999);
+            hudTimer.textContent = 'HP ' + hp;
+          } else {
+            score++;
+            hudScore.textContent = score;
+          }
           playTapSound();
           return;
         }
