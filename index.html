@@ -511,13 +511,14 @@
     }
 
     // ===== ランク判定 =====
-    function getRank(s) {
-      if (s < 30)  return { name: '八島',      image: 'pig.JPG' };
-      if (s < 60)  return { name: 'アンマー族', image: null };
-      if (s < 100) return { name: '非発展',    image: 'homomaru.JPG' };
-      if (s < 150) return { name: '発展',      image: 'hiro.JPG' };
-      if (s < 160) return { name: '紫鳳',      image: 'sio.JPG' };
-      return        { name: '野駿',       image: 'kareshun.PNG' };
+    function getRank(s, mode) {
+      const m = mode === 'music' ? 100000 : 1;
+      if (s < 30  * m) return { name: '八島',      image: 'pig.JPG' };
+      if (s < 60  * m) return { name: 'アンマー族', image: null };
+      if (s < 100 * m) return { name: '非発展',    image: 'homomaru.JPG' };
+      if (s < 150 * m) return { name: '発展',      image: 'hiro.JPG' };
+      if (s < 160 * m) return { name: '紫鳳',      image: 'sio.JPG' };
+      return                   { name: '野駿',      image: 'kareshun.PNG' };
     }
 
     // ===== ゲームオーバー =====
@@ -540,7 +541,7 @@
       document.getElementById('hit-zone').style.display = 'none';
       document.getElementById('hud-mode').textContent = '';
       finalScoreVal.textContent = score;
-      const rank = getRank(score);
+      const rank = getRank(score, gameMode);
       document.getElementById('final-rank-value').textContent = rank.name;
       const goScreen = document.getElementById('screen-gameover');
       if (rank.image) {
@@ -784,7 +785,7 @@
             hp = Math.min(hp + 200, 9999);
             hudTimer.textContent = 'HP ' + hp;
           } else {
-            score++;
+            score += 10000;
             hudScore.textContent = score;
           }
           combo++;
