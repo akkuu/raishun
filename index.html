@@ -548,6 +548,17 @@
     const KEY_LANE = { d: 0, f: 1, j: 2, k: 3 };
 
     document.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        if (STATE === 'start') {
+          const input = document.getElementById('nickname-input');
+          nickname = input.value.trim();
+          if (!nickname) { input.focus(); return; }
+          startGame();
+        } else if (STATE === 'gameover') {
+          startGame();
+        }
+        return;
+      }
       if (STATE !== 'playing') return;
       const lane = KEY_LANE[e.key.toLowerCase()];
       if (lane === undefined) return;
