@@ -195,6 +195,12 @@
       box-shadow: 0 0 12px #00ff88;
     }
 
+    .note-trap {
+      background-image: url("0afd0369.jpg");
+      outline: 3px solid #ff4400;
+      box-shadow: 0 0 12px #ff4400;
+    }
+
     /* ===== ゲームオーバー画面 ===== */
     #screen-gameover {
       background-color: #111;
@@ -731,13 +737,15 @@
       let lane;
       do { lane = Math.floor(Math.random() * 4); } while (lane === lastSpawnLane);
       lastSpawnLane = lane;
-      const heal = Math.random() < 1 / 50;
+      const rand = Math.random();
+      const heal = rand < 1 / 50;
+      const trap = !heal && rand < 1 / 50 + 1 / 30;
       const el = document.createElement('div');
-      el.className = heal ? 'note note-heal' : 'note';
+      el.className = heal ? 'note note-heal' : trap ? 'note note-trap' : 'note';
       el.style.height = noteH + 'px';
       el.style.top    = -noteH + 'px';
       laneEls[lane].appendChild(el);
-      fallingNotes.push({ lane, el, startTime: audioCtx.currentTime, heal });
+      fallingNotes.push({ lane, el, startTime: audioCtx.currentTime, heal, trap });
     }
 
     function musicGameLoop() {
@@ -748,6 +756,7 @@
       const now        = audioCtx.currentTime;
 
       let missedLane = -1;
+      let trapAvoided = false;
       for (let i = fallingNotes.length - 1; i >= 0; i--) {
         const note    = fallingNotes[i];
         const noteTop = (now - note.startTime) * fallSpeed - noteH;
@@ -755,10 +764,20 @@
         if (noteTop > screenH) {
           note.el.remove();
           fallingNotes.splice(i, 1);
-          missedLane = note.lane;
+          if (note.trap) {
+            trapAvoided = true;
+          } else {
+            missedLane = note.lane;
+          }
         }
       }
 
+      if (trapAvoided) {
+        score += 10000;
+        combo++;
+        hudScore.textContent = score;
+        hudCombo.textContent = combo;
+      }
       if (missedLane >= 0) {
         takeDamage(missedLane);
         if (hp <= 0) return;
@@ -781,6 +800,10 @@
         if (note.lane === tapLane && noteBot > hitZoneTop && noteTop < screenH) {
           note.el.remove();
           fallingNotes.splice(i, 1);
+          if (note.trap) {
+            takeDamage(tapLane);
+            return;
+          }
           if (note.heal) {
             hp = Math.min(hp + 200, 9999);
             hudTimer.textContent = 'HP ' + hp;
