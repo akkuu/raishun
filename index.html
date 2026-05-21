@@ -896,12 +896,14 @@
       if (audioCtx.state === 'suspended') audioCtx.resume();
 
       if (gameMode === 'music') {
+        flashLane(lane);
         handleMusicTap(lane);
         return;
       }
 
       const bottomNote = grid[ROWS - 1];
       if (bottomNote && bottomNote.lane === lane) {
+        flashLane(lane);
         bottomNote.el.remove();
         grid.pop();
         score++;
