@@ -16,24 +16,13 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #111;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      background: #fff;
       font-family: 'Helvetica Neue', Arial, sans-serif;
       touch-action: none;
     }
 
-    #app {
-      position: relative;
-      width: min(100vw, calc(100vh * 9 / 16));
-      height: min(100vh, calc(100vw * 16 / 9));
-      overflow: hidden;
-      background: #fff;
-    }
-
     .screen {
-      position: absolute;
+      position: fixed;
       inset: 0;
       display: none;
       flex-direction: column;
@@ -158,7 +147,7 @@
       bottom: 0;
       left: 0;
       right: 0;
-      height: 30%;
+      height: 45%;
       background: rgba(255, 105, 180, 0.08);
       z-index: 5;
       pointer-events: none;
@@ -309,7 +298,6 @@
   </style>
 </head>
 <body>
-<div id="app">
 
   <div id="screen-start" class="screen">
     <h1>雷駿先輩</h1>
@@ -348,7 +336,6 @@
     <button id="btn-home">スタート画面へ</button>
   </div>
 
-</div>
   <script type="module">
     // ===== Firebase =====
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
@@ -453,7 +440,7 @@
     const INITIAL_FALL_DURATION = 0.5;    // 開始時のnote落下秒数
     const SPEED_DOUBLE_SECS     = 180;    // この秒数で速度が2倍になる
     const SPAWN_INTERVALS = [194, 129, 97]; // BPM155: 8分・12分・16分音符
-    const HIT_ZONE_RATIO = 0.30;
+    const HIT_ZONE_RATIO = 0.45;
     const NOTE_H_RATIO   = 0.325;
     let fallingNotes   = [];
     let spawnTimerId   = null;
@@ -731,8 +718,8 @@
       } else {
         // 画面を一瞬赤くしてゲームは続行
         const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:absolute;inset:0;background:rgba(255,68,68,0.35);z-index:100;pointer-events:none;animation:flashRed 0.3s ease 1;';
-        document.getElementById('app').appendChild(overlay);
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(255,68,68,0.35);z-index:100;pointer-events:none;animation:flashRed 0.3s ease 1;';
+        document.body.appendChild(overlay);
         overlay.addEventListener('animationend', () => overlay.remove());
       }
     }
@@ -838,9 +825,9 @@
       STATE = 'countdown';
 
       const countEl = document.createElement('div');
-      countEl.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:140px;font-weight:900;color:#fff;z-index:200;pointer-events:none;text-shadow:0 0 24px rgba(0,0,0,0.9);';
+      countEl.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:140px;font-weight:900;color:#fff;z-index:200;pointer-events:none;text-shadow:0 0 24px rgba(0,0,0,0.9);';
       countEl.textContent = '2';
-      document.getElementById('app').appendChild(countEl);
+      document.body.appendChild(countEl);
 
       setTimeout(() => { countEl.textContent = '1'; }, 1000);
       setTimeout(() => {
