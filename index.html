@@ -466,7 +466,10 @@
     const HIT_ZONE_RATIO = 1.0;
     const NOTE_H_RATIO   = 0.325;
     let fallingNotes   = [];
-    let spawnTimerId   = null;
+    let spawnTimerId    = null;
+    let measureTimerId  = null;
+    const BEAT_MS       = 60000 / 155;        // 1拍 ≈ 387ms
+    const MEASURE_MS    = BEAT_MS * 4;        // 1小節 ≈ 1548ms
     let lastSpawnLane  = -1;
     let hp             = 1000;
     let musicStartTime = 0;        // audioCtx.currentTime at game start
@@ -481,6 +484,13 @@
       if (STATE !== 'playing' || gameMode !== 'music') return;
       spawnFallingNote();
       spawnTimerId = setTimeout(scheduleSpawn, getSpawnInterval());
+    }
+
+    function scheduleMeasureEnd() {
+      if (STATE !== 'playing' || gameMode !== 'music') return;
+      spawnFallingNote();
+      const speedMult = 1 + (audioCtx.currentTime - musicStartTime) / SPEED_DOUBLE_SECS;
+      measureTimerId = setTimeout(scheduleMeasureEnd, MEASURE_MS / speedMult);
     }
 
     // ===== 画面切り替え =====
@@ -549,7 +559,9 @@
       cancelAnimationFrame(animFrameId);
       // ミュージックモードのクリーンアップ
       clearTimeout(spawnTimerId);
+      clearTimeout(measureTimerId);
       spawnTimerId = null;
+      measureTimerId = null;
       fallingNotes.forEach(n => n.el.remove());
       fallingNotes = [];
       // スコアモードのクリーンアップ
@@ -859,6 +871,7 @@
       grid.forEach(note => note.el.remove());
       grid = [];
       clearTimeout(spawnTimerId);
+      clearTimeout(measureTimerId);
 
       combo = 0;
       hudScore.textContent = '0';
@@ -886,6 +899,7 @@
         STATE = 'playing';
         musicStartTime = audioCtx.currentTime;
         scheduleSpawn();
+        measureTimerId = setTimeout(scheduleMeasureEnd, MEASURE_MS);
         animFrameId = requestAnimationFrame(musicGameLoop);
       }, 2000);
     }
