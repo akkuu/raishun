@@ -453,7 +453,7 @@
 
     function getFallDuration() {
       const elapsed   = audioCtx.currentTime - musicStartTime;
-      const speedMult = 1 + Math.min(elapsed, SPEED_DOUBLE_SECS) / SPEED_DOUBLE_SECS;
+      const speedMult = 1 + elapsed / SPEED_DOUBLE_SECS;
       return INITIAL_FALL_DURATION / speedMult;
     }
 
