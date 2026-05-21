@@ -808,6 +808,11 @@
       checkNicknameAndStart();
     });
 
+    function playBGM() {
+      bgmAudio.currentTime = 0;
+      bgmAudio.play().catch(console.error);
+    }
+
     document.getElementById('btn-mode-music').addEventListener('click', () => {
       gameMode = 'music';
       document.getElementById('btn-mode-music').classList.add('active');
@@ -815,16 +820,12 @@
       const input = document.getElementById('nickname-input');
       nickname = input.value.trim();
       if (!nickname) { input.focus(); return; }
-      bgmAudio.currentTime = 0;
-      bgmAudio.play();
+      playBGM();
       startMusicGame();
     });
 
     document.getElementById('btn-retry').addEventListener('click', () => {
-      if (gameMode === 'music') {
-        bgmAudio.currentTime = 0;
-        bgmAudio.play();
-      }
+      if (gameMode === 'music') playBGM();
       restartGame();
     });
 
