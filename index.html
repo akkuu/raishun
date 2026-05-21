@@ -758,7 +758,7 @@
           note.el.remove();
           fallingNotes.splice(i, 1);
           if (note.heal) {
-            hp = Math.min(hp + 1000, 9999);
+            hp = Math.min(hp + 200, 9999);
             hudTimer.textContent = 'HP ' + hp;
           } else {
             score++;
