@@ -139,6 +139,23 @@
       background: #111;
       color: #fff;
       gap: 20px;
+      overflow: hidden;
+    }
+
+    #screen-gameover::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: var(--result-bg, none);
+      background-size: cover;
+      background-position: center;
+      opacity: 0.4;
+      z-index: 0;
+    }
+
+    #screen-gameover > * {
+      position: relative;
+      z-index: 1;
     }
 
     #screen-gameover h2 {
@@ -398,12 +415,12 @@
 
     // ===== ランク判定 =====
     function getRank(s) {
-      if (s < 50)  return '八島';
-      if (s < 80)  return 'アンマー族';
-      if (s < 120) return '非発展';
-      if (s < 180) return '発展';
-      if (s < 200) return 'ラージャン';
-      return '野駿';
+      if (s < 30)  return { name: '八島',      image: 'pig.JPG' };
+      if (s < 60)  return { name: 'アンマー族', image: null };
+      if (s < 100) return { name: '非発展',    image: 'homomaru.JPG' };
+      if (s < 150) return { name: '発展',      image: 'hiro.JPG' };
+      if (s < 160) return { name: '紫鳳',      image: 'sio.JPG' };
+      return        { name: '野駿',       image: 'kareshun.PNG' };
     }
 
     // ===== ゲームオーバー =====
@@ -413,7 +430,10 @@
       grid.forEach(note => note.el.remove());
       grid = [];
       finalScoreVal.textContent = score;
-      document.getElementById('final-rank-value').textContent = getRank(score);
+      const rank = getRank(score);
+      document.getElementById('final-rank-value').textContent = rank.name;
+      const goScreen = document.getElementById('screen-gameover');
+      goScreen.style.setProperty('--result-bg', rank.image ? `url("${rank.image}")` : 'none');
       setScreen('gameover');
 
       // スコア保存 & ランキング表示
