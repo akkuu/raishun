@@ -218,7 +218,7 @@
       .then(decoded => { tapBuffer = decoded; });
 
     let gahoBuffer = null;
-    fetch('gaho.mp3')
+    fetch('gaho2.mp3')
       .then(r => r.arrayBuffer())
       .then(buf => audioCtx.decodeAudioData(buf))
       .then(decoded => { gahoBuffer = decoded; });
