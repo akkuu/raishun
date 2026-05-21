@@ -217,6 +217,20 @@
       .then(buf => audioCtx.decodeAudioData(buf))
       .then(decoded => { tapBuffer = decoded; });
 
+    let gahoBuffer = null;
+    fetch('gaho.mp3')
+      .then(r => r.arrayBuffer())
+      .then(buf => audioCtx.decodeAudioData(buf))
+      .then(decoded => { gahoBuffer = decoded; });
+
+    function playGaho() {
+      if (!gahoBuffer) return;
+      const src = audioCtx.createBufferSource();
+      src.buffer = gahoBuffer;
+      src.connect(audioCtx.destination);
+      src.start(0);
+    }
+
     function playTapSound() {
       if (!tapBuffer) return;
       const src = audioCtx.createBufferSource();
@@ -325,6 +339,7 @@
     function flashAndGameOver(tapLane, tapRow) {
       STATE = 'flashing';
       cancelAnimationFrame(animFrameId);
+      playGaho();
 
       const rh = getRowHeight();
       const lw = getLaneWidth();
