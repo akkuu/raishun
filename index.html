@@ -142,11 +142,9 @@
       overflow: hidden;
     }
 
-    #screen-gameover::before {
-      content: '';
+    #gameover-bg {
       position: absolute;
       inset: 0;
-      background-image: var(--result-bg, none);
       background-size: cover;
       background-position: center;
       opacity: 0.4;
@@ -263,6 +261,7 @@
   </div>
 
   <div id="screen-gameover" class="screen">
+    <div id="gameover-bg"></div>
     <h2>GAME OVER</h2>
     <div id="final-score">SCORE: <span id="final-score-value">0</span></div>
     <div id="final-rank">あなたは<span id="final-rank-value"></span>です</div>
@@ -432,8 +431,7 @@
       finalScoreVal.textContent = score;
       const rank = getRank(score);
       document.getElementById('final-rank-value').textContent = rank.name;
-      const goScreen = document.getElementById('screen-gameover');
-      goScreen.style.setProperty('--result-bg', rank.image ? `url("${rank.image}")` : 'none');
+      document.getElementById('gameover-bg').style.backgroundImage = rank.image ? `url("${rank.image}")` : 'none';
       setScreen('gameover');
 
       // スコア保存 & ランキング表示
