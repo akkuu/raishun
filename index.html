@@ -137,8 +137,6 @@
     /* ===== ゲームオーバー画面 ===== */
     #screen-gameover {
       background-color: #111;
-      background-size: cover;
-      background-position: center;
       color: #fff;
       gap: 20px;
     }
@@ -419,7 +417,9 @@
       document.getElementById('final-rank-value').textContent = rank.name;
       const goScreen = document.getElementById('screen-gameover');
       if (rank.image) {
-        goScreen.style.backgroundImage = `linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), url("${rank.image}")`;
+        goScreen.style.backgroundImage = `url("${rank.image}")`;
+        goScreen.style.backgroundSize = 'cover';
+        goScreen.style.backgroundPosition = 'center';
       } else {
         goScreen.style.backgroundImage = 'none';
       }
