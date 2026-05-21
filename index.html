@@ -762,8 +762,8 @@
       takeDamage(tapLane);
     }
 
-    function startMusicGame() {
-      audioCtx.resume();
+    async function startMusicGame() {
+      await audioCtx.resume();
       score    = 0;
       chartIdx = 0;
       hp       = 1000;
