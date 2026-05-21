@@ -389,13 +389,28 @@
     let grid = [];
 
     // ===== ミュージックモード状態 =====
-    const FALL_DURATION  = 0.77;   // BPM155 8分音符×4分の速度
-    const HIT_ZONE_RATIO = 0.30;   // 画面下から何割をヒットゾーンとするか
-    const NOTE_H_RATIO   = 0.325;  // noteの高さ割合
-    let fallingNotes   = [];       // {lane, el, startTime}
+    const INITIAL_FALL_DURATION = 0.5;    // 開始時のnote落下秒数
+    const SPEED_DOUBLE_SECS     = 60;     // この秒数で速度が2倍になる
+    const SPAWN_INTERVAL_MS     = 97;     // BPM155 16分音符 = 60000/155/4
+    const HIT_ZONE_RATIO = 0.30;
+    const NOTE_H_RATIO   = 0.325;
+    let fallingNotes   = [];
     let spawnTimerId   = null;
     let lastSpawnLane  = -1;
-    let hp             = 1000;     // ミュージックモードHP
+    let hp             = 1000;
+    let musicStartTime = 0;        // audioCtx.currentTime at game start
+
+    function getFallDuration() {
+      const elapsed   = audioCtx.currentTime - musicStartTime;
+      const speedMult = 1 + Math.min(elapsed, SPEED_DOUBLE_SECS) / SPEED_DOUBLE_SECS;
+      return INITIAL_FALL_DURATION / speedMult;
+    }
+
+    function scheduleSpawn() {
+      if (STATE !== 'playing' || gameMode !== 'music') return;
+      spawnFallingNote();
+      spawnTimerId = setTimeout(scheduleSpawn, SPAWN_INTERVAL_MS);
+    }
 
     // ===== 画面切り替え =====
     function setScreen(name) {
@@ -461,7 +476,7 @@
       STATE = 'gameover';
       cancelAnimationFrame(animFrameId);
       // ミュージックモードのクリーンアップ
-      clearInterval(spawnTimerId);
+      clearTimeout(spawnTimerId);
       spawnTimerId = null;
       fallingNotes.forEach(n => n.el.remove());
       fallingNotes = [];
@@ -669,7 +684,7 @@
     function musicGameLoop() {
       if (STATE !== 'playing') return;
       const screenH    = laneContainer.offsetHeight;
-      const fallSpeed  = screenH / FALL_DURATION;
+      const fallSpeed  = screenH / getFallDuration();
       const noteH      = Math.floor(screenH * NOTE_H_RATIO);
       const now        = audioCtx.currentTime;
 
@@ -695,7 +710,7 @@
 
     function handleMusicTap(tapLane) {
       const screenH    = laneContainer.offsetHeight;
-      const fallSpeed  = screenH / FALL_DURATION;
+      const fallSpeed  = screenH / getFallDuration();
       const noteH      = Math.floor(screenH * NOTE_H_RATIO);
       const hitZoneTop = screenH * (1 - HIT_ZONE_RATIO);
       const now        = audioCtx.currentTime;
@@ -728,7 +743,7 @@
       fallingNotes = [];
       grid.forEach(note => note.el.remove());
       grid = [];
-      clearInterval(spawnTimerId);
+      clearTimeout(spawnTimerId);
 
       hudScore.textContent = '0';
       hudTimer.textContent = 'HP 1000';
@@ -741,9 +756,9 @@
       setScreen('game');
       STATE = 'playing';
 
-      // ランダムにnoteをスポーン
-      spawnFallingNote();
-      spawnTimerId = setInterval(spawnFallingNote, 840);
+      // ランダムにnoteをスポーン (BPM155 16分音符タイミング)
+      musicStartTime = audioCtx.currentTime;
+      scheduleSpawn();
 
       animFrameId = requestAnimationFrame(musicGameLoop);
     }
