@@ -7,6 +7,11 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    @keyframes flashRed {
+      0%, 100% { opacity: 0; }
+      50%       { opacity: 1; }
+    }
+
     html, body {
       width: 100%;
       height: 100%;
@@ -316,6 +321,37 @@
       setScreen('gameover');
     }
 
+    // ===== ミス時: 赤点滅2回してからゲームオーバー =====
+    function flashAndGameOver(tapLane, tapRow) {
+      STATE = 'flashing';
+      cancelAnimationFrame(animFrameId);
+
+      const rh = getRowHeight();
+      const lw = getLaneWidth();
+      const clampedLane = Math.max(0, Math.min(3, tapLane));
+      const clampedRow  = Math.max(0, Math.min(ROWS - 1, tapRow));
+
+      const flash = document.createElement('div');
+      flash.style.cssText = [
+        'position:absolute',
+        `left:${clampedLane * lw + 4}px`,
+        `top:${clampedRow * rh + 4}px`,
+        `width:${lw - 8}px`,
+        `height:${rh - 8}px`,
+        'background:#f44',
+        'border-radius:6px',
+        'z-index:20',
+        'animation:flashRed 0.25s ease 2',
+        'pointer-events:none',
+      ].join(';');
+      laneContainer.appendChild(flash);
+
+      flash.addEventListener('animationend', () => {
+        flash.remove();
+        triggerGameOver();
+      });
+    }
+
     // ===== タップ判定 =====
     function handleInput(e) {
       if (STATE !== 'playing') return;
@@ -337,7 +373,6 @@
         const tapRow  = Math.floor(p.y / rh);
         const tapLane = Math.floor(p.x / lw);
 
-        // 有効: 一番下の行(タテ1 = ROWS-1)の正しいレーンをタップ
         if (tapRow === ROWS - 1 && grid[ROWS - 1] && grid[ROWS - 1].lane === tapLane) {
           grid[ROWS - 1].el.remove();
           grid.pop();
@@ -351,7 +386,8 @@
       }
 
       if (!anyHit) {
-        triggerGameOver();
+        const p = points[0];
+        flashAndGameOver(Math.floor(p.x / lw), Math.floor(p.y / rh));
       }
     }
 
@@ -417,7 +453,7 @@
         playTapSound();
         advanceGrid();
       } else {
-        triggerGameOver();
+        flashAndGameOver(lane, ROWS - 1);
       }
     });
 
