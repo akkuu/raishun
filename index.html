@@ -259,7 +259,7 @@
   <script type="module">
     // ===== Firebase =====
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-    import { getFirestore, collection, addDoc, getDocs, orderBy, query, limit, serverTimestamp }
+    import { getFirestore, doc, getDoc, setDoc, collection, getDocs, orderBy, query, limit, serverTimestamp }
       from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
     const firebaseConfig = {
@@ -274,7 +274,11 @@
     const db  = getFirestore(app);
 
     async function saveScore(nickname, score) {
-      await addDoc(collection(db, 'scores'), { nickname, score, timestamp: serverTimestamp() });
+      const ref = doc(db, 'scores', nickname);
+      const existing = await getDoc(ref);
+      if (!existing.exists() || existing.data().score < score) {
+        await setDoc(ref, { nickname, score, timestamp: serverTimestamp() });
+      }
     }
 
     async function loadRanking() {
