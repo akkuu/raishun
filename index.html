@@ -718,6 +718,10 @@
     }
 
     async function startMusicGame() {
+      // awaitより前に呼ぶことでブラウザのautoplayブロックを回避
+      bgmAudio.currentTime = 0;
+      bgmAudio.play().catch(() => {});
+
       await audioCtx.resume();
       score         = 0;
       hp            = 1000;
@@ -728,7 +732,6 @@
       grid.forEach(note => note.el.remove());
       grid = [];
       clearInterval(spawnTimerId);
-      stopBGM();
 
       hudScore.textContent = '0';
       hudTimer.textContent = 'HP 1000';
@@ -740,10 +743,6 @@
 
       setScreen('game');
       STATE = 'playing';
-
-      // BGM再生
-      bgmAudio.currentTime = 0;
-      bgmAudio.play();
 
       // ランダムにnoteをスポーン
       spawnFallingNote();
