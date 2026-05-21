@@ -446,22 +446,22 @@
     const SPAWN_INTERVALS = [774, 387, 194, 129, 97];
 
     function getSpawnInterval() {
-      const elapsed  = audioCtx.currentTime - musicStartTime;
-      const progress = Math.min(elapsed, 120) / 120; // 2分で完了
-      // 4分の重みをprogressに応じて減らし、その分16分に移す
+      const elapsed   = audioCtx.currentTime - musicStartTime;
+      const progress  = Math.min(elapsed, 120) / 120;
+      const speedMult = 1 + elapsed / SPEED_DOUBLE_SECS;
       const weights = [
-        0.25,                    // 2分: 固定
-        0.25 * (1 - progress),  // 4分: 減少
-        0.25,                    // 8分: 固定
-        0.25,                    // 12分: 固定
-        0.25 * progress,         // 16分: 増加
+        0.25,
+        0.25 * (1 - progress),
+        0.25,
+        0.25,
+        0.25 * progress,
       ];
       let rand = Math.random();
       for (let i = 0; i < SPAWN_INTERVALS.length; i++) {
         rand -= weights[i];
-        if (rand <= 0) return SPAWN_INTERVALS[i];
+        if (rand <= 0) return SPAWN_INTERVALS[i] / speedMult;
       }
-      return SPAWN_INTERVALS[SPAWN_INTERVALS.length - 1];
+      return SPAWN_INTERVALS[SPAWN_INTERVALS.length - 1] / speedMult;
     }
     const HIT_ZONE_RATIO = 1.0;
     const NOTE_H_RATIO   = 0.325;
