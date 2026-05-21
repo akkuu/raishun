@@ -389,7 +389,7 @@
     let grid = [];
 
     // ===== ミュージックモード状態 =====
-    const FALL_DURATION  = 2.0;    // noteが画面を縦断する秒数
+    const FALL_DURATION  = 1.2;    // noteが画面を縦断する秒数
     const HIT_ZONE_RATIO = 0.30;   // 画面下から何割をヒットゾーンとするか
     const NOTE_H_RATIO   = 0.325;  // noteの高さ割合
     let fallingNotes   = [];       // {lane, el, startTime}
@@ -743,7 +743,7 @@
 
       // ランダムにnoteをスポーン
       spawnFallingNote();
-      spawnTimerId = setInterval(spawnFallingNote, 193); // BPM155 8分音符
+      spawnTimerId = setInterval(spawnFallingNote, 840);
 
       animFrameId = requestAnimationFrame(musicGameLoop);
     }
