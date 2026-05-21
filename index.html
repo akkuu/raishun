@@ -510,7 +510,7 @@
 
     // ===== ランク判定 =====
     function getRank(s, mode) {
-      const m = mode === 'music' ? 100000 : 1;
+      const m = mode === 'music' ? 50000 : 1;
       if (s < 30  * m) return { name: '八島',      image: 'pig.JPG' };
       if (s < 60  * m) return { name: 'アンマー族', image: null };
       if (s < 100 * m) return { name: '非発展',    image: 'homomaru.JPG' };
