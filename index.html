@@ -267,6 +267,18 @@
       cursor: pointer;
       letter-spacing: 2px;
     }
+
+    #btn-home {
+      padding: 10px 28px;
+      font-size: 15px;
+      font-weight: 700;
+      background: transparent;
+      color: #aaa;
+      border: 2px solid #aaa;
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 1px;
+    }
   </style>
 </head>
 <body>
@@ -304,6 +316,7 @@
       <ol id="ranking-list"></ol>
     </div>
     <button id="btn-retry">RETRY</button>
+    <button id="btn-home">スタート画面へ</button>
   </div>
 
   <script type="module">
@@ -323,16 +336,18 @@
     const app = initializeApp(firebaseConfig);
     const db  = getFirestore(app);
 
-    async function saveScore(nickname, score) {
-      const ref = doc(db, 'scores', nickname);
+    async function saveScore(nickname, score, mode) {
+      const collName = mode === 'music' ? 'scores_music' : 'scores';
+      const ref = doc(db, collName, nickname);
       const existing = await getDoc(ref);
       if (!existing.exists() || existing.data().score < score) {
         await setDoc(ref, { nickname, score, timestamp: serverTimestamp() });
       }
     }
 
-    async function loadRanking() {
-      const q = query(collection(db, 'scores'), orderBy('score', 'desc'), limit(10));
+    async function loadRanking(mode) {
+      const collName = mode === 'music' ? 'scores_music' : 'scores';
+      const q = query(collection(db, collName), orderBy('score', 'desc'), limit(10));
       const snap = await getDocs(q);
       return snap.docs.map(d => d.data());
     }
@@ -517,9 +532,11 @@
       setScreen('gameover');
 
       // スコア保存 & ランキング表示
+      document.getElementById('ranking-title').textContent =
+        gameMode === 'music' ? 'ランキング（ミュージック）' : 'ランキング（スコアアタック）';
       try {
-        await saveScore(nickname, score);
-        const rankings = await loadRanking();
+        await saveScore(nickname, score, gameMode);
+        const rankings = await loadRanking(gameMode);
         const list = document.getElementById('ranking-list');
         list.innerHTML = rankings.map((r, i) => {
           const isMe = r.nickname === nickname && r.score === score;
@@ -775,13 +792,21 @@
       document.getElementById('hud-mode').textContent = 'MUSIC';
 
       setScreen('game');
-      STATE = 'playing';
+      STATE = 'countdown';
 
-      // ランダムにnoteをスポーン (BPM155 16分音符タイミング)
-      musicStartTime = audioCtx.currentTime;
-      scheduleSpawn();
+      const countEl = document.createElement('div');
+      countEl.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:140px;font-weight:900;color:#fff;z-index:200;pointer-events:none;text-shadow:0 0 24px rgba(0,0,0,0.9);';
+      countEl.textContent = '2';
+      document.body.appendChild(countEl);
 
-      animFrameId = requestAnimationFrame(musicGameLoop);
+      setTimeout(() => { countEl.textContent = '1'; }, 1000);
+      setTimeout(() => {
+        countEl.remove();
+        STATE = 'playing';
+        musicStartTime = audioCtx.currentTime;
+        scheduleSpawn();
+        animFrameId = requestAnimationFrame(musicGameLoop);
+      }, 2000);
     }
 
     function restartGame() {
@@ -863,6 +888,12 @@
     document.getElementById('btn-retry').addEventListener('click', () => {
       if (gameMode === 'music') playBGM();
       restartGame();
+    });
+
+    document.getElementById('btn-home').addEventListener('click', () => {
+      stopBGM();
+      STATE = 'start';
+      setScreen('start');
     });
 
     laneContainer.addEventListener('touchstart', handleInput, { passive: false });
