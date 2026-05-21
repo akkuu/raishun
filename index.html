@@ -110,6 +110,22 @@
       line-height: 1;
     }
 
+    #hud-score.music-score {
+      position: absolute;
+      top: 8px;
+      left: 12px;
+      font-size: 60px;
+      text-align: left;
+    }
+
+    #hud-combo {
+      font-size: 120px;
+      font-weight: 700;
+      color: #ff69b4;
+      line-height: 1;
+      display: none;
+    }
+
     #hud-timer {
       font-size: 60px;
       font-weight: 700;
@@ -294,6 +310,7 @@
 
   <div id="screen-game" class="screen">
     <div id="hud">
+      <div id="hud-combo"></div>
       <div id="hud-score">0</div>
       <div id="hud-timer">60</div>
       <div id="hud-mode"></div>
@@ -401,6 +418,8 @@
     };
     const hudScore      = document.getElementById('hud-score');
     const hudTimer      = document.getElementById('hud-timer');
+    const hudCombo      = document.getElementById('hud-combo');
+    let combo = 0;
     const finalScoreVal = document.getElementById('final-score-value');
     const laneContainer = document.getElementById('lane-container');
     const laneEls       = [0, 1, 2, 3].map(i => document.getElementById('lane-' + i));
@@ -516,6 +535,8 @@
       // タイマーとヒットゾーンをリセット
       hudTimer.style.display = '';
       hudTimer.style.color = '';
+      hudCombo.style.display = 'none';
+      hudScore.classList.remove('music-score');
       document.getElementById('hit-zone').style.display = 'none';
       document.getElementById('hud-mode').textContent = '';
       finalScoreVal.textContent = score;
@@ -686,6 +707,8 @@
     }
 
     function takeDamage(lane) {
+      combo = 0;
+      hudCombo.textContent = '0';
       hp -= 100;
       hudTimer.textContent = 'HP ' + hp;
       if (hp <= 0) {
@@ -764,6 +787,8 @@
             score++;
             hudScore.textContent = score;
           }
+          combo++;
+          hudCombo.textContent = combo;
           playTapSound();
           return;
         }
@@ -783,7 +808,11 @@
       grid = [];
       clearTimeout(spawnTimerId);
 
+      combo = 0;
       hudScore.textContent = '0';
+      hudScore.classList.add('music-score');
+      hudCombo.textContent = '0';
+      hudCombo.style.display = 'block';
       hudTimer.textContent = 'HP 1000';
       hudTimer.style.color = '#f55';
       hudTimer.classList.remove('warning');
