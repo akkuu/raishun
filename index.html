@@ -741,10 +741,10 @@
       bgmAudio.currentTime = 0;
     }
 
-    function takeDamage(lane) {
+    function takeDamage(lane, amount = 100) {
       combo = 0;
       hudCombo.textContent = '0';
-      hp -= 100;
+      hp -= amount;
       hudTimer.textContent = 'HP ' + hp;
       if (hp <= 0) {
         stopBGM();
@@ -829,7 +829,7 @@
           note.el.remove();
           fallingNotes.splice(i, 1);
           if (note.trap) {
-            takeDamage(tapLane);
+            takeDamage(tapLane, 500);
             return;
           }
           if (note.heal) {
