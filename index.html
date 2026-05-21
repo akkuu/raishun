@@ -391,7 +391,7 @@
     // ===== ミュージックモード状態 =====
     const INITIAL_FALL_DURATION = 0.5;    // 開始時のnote落下秒数
     const SPEED_DOUBLE_SECS     = 60;     // この秒数で速度が2倍になる
-    const SPAWN_INTERVAL_MS     = 129;    // BPM155 12分音符 = 60000/155/3
+    const SPAWN_INTERVALS = [194, 129, 97]; // BPM155: 8分・12分・16分音符
     const HIT_ZONE_RATIO = 0.30;
     const NOTE_H_RATIO   = 0.325;
     let fallingNotes   = [];
@@ -409,7 +409,8 @@
     function scheduleSpawn() {
       if (STATE !== 'playing' || gameMode !== 'music') return;
       spawnFallingNote();
-      spawnTimerId = setTimeout(scheduleSpawn, SPAWN_INTERVAL_MS);
+      const interval = SPAWN_INTERVALS[Math.floor(Math.random() * SPAWN_INTERVALS.length)];
+      spawnTimerId = setTimeout(scheduleSpawn, interval);
     }
 
     // ===== 画面切り替え =====
