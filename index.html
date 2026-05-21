@@ -366,31 +366,6 @@
     const TIME_LIMIT = 20;
     const ROWS = 3;
 
-    // ===== 譜面 (ここを編集してください) =====
-    // time : 曲開始から何秒後にそのnoteがヒットゾーンに届くか
-    // lane : 0=左端  1=左中  2=右中  3=右端
-    const MUSIC_CHART = [
-      { time:  1.0, lane: 1 },
-      { time:  1.5, lane: 3 },
-      { time:  2.0, lane: 0 },
-      { time:  2.5, lane: 2 },
-      { time:  3.0, lane: 1 },
-      { time:  3.5, lane: 0 },
-      { time:  4.0, lane: 3 },
-      { time:  4.5, lane: 2 },
-      { time:  5.0, lane: 0 },
-      { time:  5.5, lane: 1 },
-      { time:  6.0, lane: 3 },
-      { time:  6.5, lane: 2 },
-      { time:  7.0, lane: 0 },
-      { time:  7.5, lane: 3 },
-      { time:  8.0, lane: 1 },
-      { time:  8.5, lane: 0 },
-      { time:  9.0, lane: 2 },
-      { time:  9.5, lane: 3 },
-      { time: 10.0, lane: 1 },
-      { time: 10.5, lane: 0 },
-    ];
 
     // ===== DOM =====
     const screens = {
@@ -421,8 +396,8 @@
     const HIT_ZONE_RATIO = 0.30;   // 画面下から何割をヒットゾーンとするか
     const NOTE_H_RATIO   = 0.325;  // noteの高さ割合
     let fallingNotes   = [];       // {lane, el, startTime}
-    let chartIdx       = 0;        // 次にスポーンする譜面インデックス
-    let bgmStartTime   = 0;        // BGM開始時のaudioCtx.currentTime
+    let spawnTimerId   = null;
+    let lastSpawnLane  = -1;
     let bgmSource      = null;
     let hp             = 1000;     // ミュージックモードHP
 
@@ -490,7 +465,8 @@
       STATE = 'gameover';
       cancelAnimationFrame(animFrameId);
       // ミュージックモードのクリーンアップ
-      chartIdx = 0;
+      clearInterval(spawnTimerId);
+      spawnTimerId = null;
       if (bgmSource) { try { bgmSource.stop(); } catch(e) {} bgmSource = null; }
       fallingNotes.forEach(n => n.el.remove());
       fallingNotes = [];
@@ -679,9 +655,13 @@
       }
     }
 
-    function spawnChartNote(lane) {
+    function spawnFallingNote() {
+      if (STATE !== 'playing') return;
       const screenH = laneContainer.offsetHeight;
       const noteH   = Math.floor(screenH * NOTE_H_RATIO);
+      let lane;
+      do { lane = Math.floor(Math.random() * 4); } while (lane === lastSpawnLane);
+      lastSpawnLane = lane;
       const el = document.createElement('div');
       el.className = 'note';
       el.style.height = noteH + 'px';
@@ -695,22 +675,8 @@
       const screenH    = laneContainer.offsetHeight;
       const fallSpeed  = screenH / FALL_DURATION;
       const noteH      = Math.floor(screenH * NOTE_H_RATIO);
-      const hitZoneTop = screenH * (1 - HIT_ZONE_RATIO);
       const now        = audioCtx.currentTime;
-      const songTime   = now - bgmStartTime;
 
-      // 譜面に従ってnoteをスポーン
-      while (chartIdx < MUSIC_CHART.length) {
-        const entry = MUSIC_CHART[chartIdx];
-        if (songTime >= entry.time - FALL_DURATION) {
-          spawnChartNote(entry.lane);
-          chartIdx++;
-        } else {
-          break;
-        }
-      }
-
-      // noteの位置更新・ミス検出
       let missedLane = -1;
       for (let i = fallingNotes.length - 1; i >= 0; i--) {
         const note    = fallingNotes[i];
@@ -726,13 +692,6 @@
       if (missedLane >= 0) {
         takeDamage(missedLane);
         if (hp <= 0) return;
-      }
-
-      // 譜面終了 & 画面上のnoteが全部消えたらクリア
-      if (chartIdx >= MUSIC_CHART.length && fallingNotes.length === 0) {
-        stopBGM();
-        triggerGameOver();
-        return;
       }
 
       animFrameId = requestAnimationFrame(musicGameLoop);
@@ -764,14 +723,15 @@
 
     async function startMusicGame() {
       await audioCtx.resume();
-      score    = 0;
-      chartIdx = 0;
-      hp       = 1000;
+      score         = 0;
+      hp            = 1000;
+      lastSpawnLane = -1;
 
       fallingNotes.forEach(n => n.el.remove());
       fallingNotes = [];
       grid.forEach(note => note.el.remove());
       grid = [];
+      clearInterval(spawnTimerId);
       stopBGM();
 
       hudScore.textContent = '0';
@@ -789,11 +749,14 @@
       if (bgmBuffer) {
         bgmSource = audioCtx.createBufferSource();
         bgmSource.buffer = bgmBuffer;
-        bgmSource.loop   = false;
+        bgmSource.loop   = true;
         bgmSource.connect(audioCtx.destination);
         bgmSource.start(0);
-        bgmStartTime = audioCtx.currentTime;
       }
+
+      // ランダムにnoteをスポーン
+      spawnFallingNote();
+      spawnTimerId = setInterval(spawnFallingNote, 650);
 
       animFrameId = requestAnimationFrame(musicGameLoop);
     }
