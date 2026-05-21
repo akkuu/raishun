@@ -59,17 +59,28 @@
       letter-spacing: 4px;
     }
 
-    #btn-start {
-      margin-top: 16px;
-      padding: 16px 48px;
-      font-size: 20px;
+    #mode-buttons {
+      display: flex;
+      gap: 16px;
+      margin-top: 8px;
+    }
+
+    .btn-mode {
+      padding: 16px 32px;
+      font-size: 18px;
       font-weight: 700;
-      background: #fff;
-      color: #111;
-      border: none;
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      border: 2px solid #fff;
       border-radius: 8px;
       cursor: pointer;
-      letter-spacing: 2px;
+      letter-spacing: 1px;
+      transition: background 0.15s;
+    }
+
+    .btn-mode:hover, .btn-mode.active {
+      background: #fff;
+      color: #111;
     }
 
     /* ===== ゲーム画面 ===== */
@@ -107,6 +118,26 @@
     }
 
     #hud-timer.warning { color: #f44; }
+
+    #hud-mode {
+      font-size: 24px;
+      font-weight: 700;
+      color: #aaf;
+      letter-spacing: 2px;
+    }
+
+    #hit-zone {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 15%;
+      border-top: 4px solid #ff69b4;
+      background: rgba(255, 105, 180, 0.08);
+      z-index: 5;
+      pointer-events: none;
+      display: none;
+    }
 
     #lane-container {
       position: absolute;
@@ -229,19 +260,24 @@
   <div id="screen-start" class="screen">
     <h1>雷駿先輩</h1>
     <input id="nickname-input" type="text" placeholder="ニックネームを入力" maxlength="12">
-    <button id="btn-start">START</button>
+    <div id="mode-buttons">
+      <button class="btn-mode active" id="btn-mode-score">スコアアタック</button>
+      <button class="btn-mode" id="btn-mode-music">ミュージック</button>
+    </div>
   </div>
 
   <div id="screen-game" class="screen">
     <div id="hud">
       <div id="hud-score">0</div>
       <div id="hud-timer">60</div>
+      <div id="hud-mode"></div>
     </div>
     <div id="lane-container">
       <div class="lane" id="lane-0"></div>
       <div class="lane" id="lane-1"></div>
       <div class="lane" id="lane-2"></div>
       <div class="lane" id="lane-3"></div>
+      <div id="hit-zone"></div>
     </div>
   </div>
 
@@ -304,6 +340,12 @@
       .then(buf => audioCtx.decodeAudioData(buf))
       .then(decoded => { gahoBuffer = decoded; });
 
+    let bgmBuffer = null;
+    fetch('gaho.mp3')
+      .then(r => r.arrayBuffer())
+      .then(buf => audioCtx.decodeAudioData(buf))
+      .then(decoded => { bgmBuffer = decoded; });
+
     function playGaho() {
       if (!gahoBuffer) return;
       const src = audioCtx.createBufferSource();
@@ -338,6 +380,7 @@
 
     // ===== ゲーム状態 =====
     let STATE         = 'start';
+    let gameMode      = 'score'; // 'score' | 'music'
     let score         = 0;
     let timeLeft      = TIME_LIMIT;
     let elapsedTotal  = 0;
@@ -346,6 +389,15 @@
     let timerStarted  = false;
     // grid[0]=一番上の行, grid[3]=一番下の行, 各要素 {lane, el}
     let grid = [];
+
+    // ===== ミュージックモード状態 =====
+    const FALL_DURATION  = 2.0;   // noteが画面を縦断する秒数
+    const HIT_ZONE_RATIO = 0.15;  // 画面下から何割をヒットゾーンとするか
+    const NOTE_H_RATIO   = 0.13;  // noteの高さ割合
+    let fallingNotes   = [];      // {lane, el, startTime}
+    let spawnTimerId   = null;
+    let lastSpawnLane  = -1;
+    let bgmSource      = null;
 
     // ===== 画面切り替え =====
     function setScreen(name) {
@@ -410,8 +462,19 @@
     async function triggerGameOver() {
       STATE = 'gameover';
       cancelAnimationFrame(animFrameId);
+      // ミュージックモードのクリーンアップ
+      clearInterval(spawnTimerId);
+      spawnTimerId = null;
+      if (bgmSource) { try { bgmSource.stop(); } catch(e) {} bgmSource = null; }
+      fallingNotes.forEach(n => n.el.remove());
+      fallingNotes = [];
+      // スコアモードのクリーンアップ
       grid.forEach(note => note.el.remove());
       grid = [];
+      // タイマーとヒットゾーンをリセット
+      hudTimer.style.display = '';
+      document.getElementById('hit-zone').style.display = 'none';
+      document.getElementById('hud-mode').textContent = '';
       finalScoreVal.textContent = score;
       const rank = getRank(score);
       document.getElementById('final-rank-value').textContent = rank.name;
@@ -477,7 +540,6 @@
       e.preventDefault();
 
       const rect = laneContainer.getBoundingClientRect();
-      const rh   = getRowHeight();
       const lw   = getLaneWidth();
 
       const points = e.changedTouches
@@ -487,6 +549,12 @@
           }))
         : [{ x: e.clientX - rect.left, y: e.clientY - rect.top }];
 
+      if (gameMode === 'music') {
+        handleMusicTap(Math.floor(points[0].x / lw));
+        return;
+      }
+
+      const rh = getRowHeight();
       let anyHit = false;
       for (const p of points) {
         const tapRow  = Math.floor(p.y / rh);
@@ -536,7 +604,7 @@
       animFrameId = requestAnimationFrame(gameLoop);
     }
 
-    // ===== ゲーム開始 =====
+    // ===== スコアモード開始 =====
     function startGame() {
       audioCtx.resume();
       score         = 0;
@@ -545,17 +613,144 @@
       lastTimestamp = null;
       timerStarted  = false;
 
+      fallingNotes.forEach(n => n.el.remove());
+      fallingNotes = [];
       grid.forEach(note => note.el.remove());
       grid = [];
 
       hudScore.textContent = '0';
       hudTimer.textContent = TIME_LIMIT;
       hudTimer.classList.remove('warning');
+      hudTimer.style.display = '';
+      document.getElementById('hit-zone').style.display = 'none';
+      document.getElementById('hud-mode').textContent = '';
 
       setScreen('game');
       STATE = 'playing';
       initGrid();
       animFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    // ===== ミュージックモード =====
+    function stopBGM() {
+      if (bgmSource) { try { bgmSource.stop(); } catch(e) {} bgmSource = null; }
+    }
+
+    function spawnFallingNote() {
+      if (STATE !== 'playing') return;
+      const screenH = laneContainer.offsetHeight;
+      const noteH   = Math.floor(screenH * NOTE_H_RATIO);
+      let lane;
+      do { lane = Math.floor(Math.random() * 4); } while (lane === lastSpawnLane);
+      lastSpawnLane = lane;
+
+      const el = document.createElement('div');
+      el.className = 'note';
+      el.style.height = noteH + 'px';
+      el.style.top    = -noteH + 'px';
+      laneEls[lane].appendChild(el);
+      fallingNotes.push({ lane, el, startTime: audioCtx.currentTime });
+    }
+
+    function musicGameLoop() {
+      if (STATE !== 'playing') return;
+      const screenH    = laneContainer.offsetHeight;
+      const fallSpeed  = screenH / FALL_DURATION;
+      const noteH      = Math.floor(screenH * NOTE_H_RATIO);
+      const hitZoneTop = screenH * (1 - HIT_ZONE_RATIO);
+      const now        = audioCtx.currentTime;
+
+      let missedLane = -1;
+      for (let i = fallingNotes.length - 1; i >= 0; i--) {
+        const note    = fallingNotes[i];
+        const noteTop = (now - note.startTime) * fallSpeed - noteH;
+        note.el.style.top = noteTop + 'px';
+        if (noteTop > screenH) {
+          note.el.remove();
+          fallingNotes.splice(i, 1);
+          missedLane = note.lane;
+        }
+      }
+
+      if (missedLane >= 0) {
+        clearInterval(spawnTimerId);
+        spawnTimerId = null;
+        stopBGM();
+        flashAndGameOver(missedLane, ROWS - 1);
+        return;
+      }
+
+      animFrameId = requestAnimationFrame(musicGameLoop);
+    }
+
+    function handleMusicTap(tapLane) {
+      const screenH    = laneContainer.offsetHeight;
+      const fallSpeed  = screenH / FALL_DURATION;
+      const noteH      = Math.floor(screenH * NOTE_H_RATIO);
+      const hitZoneTop = screenH * (1 - HIT_ZONE_RATIO);
+      const now        = audioCtx.currentTime;
+
+      for (let i = 0; i < fallingNotes.length; i++) {
+        const note    = fallingNotes[i];
+        const noteTop = (now - note.startTime) * fallSpeed - noteH;
+        const noteBot = noteTop + noteH;
+        if (note.lane === tapLane && noteBot > hitZoneTop && noteTop < screenH) {
+          note.el.remove();
+          fallingNotes.splice(i, 1);
+          score++;
+          hudScore.textContent = score;
+          playTapSound();
+          return;
+        }
+      }
+      // ヒットゾーンにnoteがないのにタップ → ミス
+      clearInterval(spawnTimerId);
+      spawnTimerId = null;
+      stopBGM();
+      flashAndGameOver(tapLane, ROWS - 1);
+    }
+
+    function startMusicGame() {
+      audioCtx.resume();
+      score         = 0;
+      lastSpawnLane = -1;
+
+      fallingNotes.forEach(n => n.el.remove());
+      fallingNotes = [];
+      grid.forEach(note => note.el.remove());
+      grid = [];
+      clearInterval(spawnTimerId);
+      stopBGM();
+
+      hudScore.textContent = '0';
+      hudTimer.style.display = 'none';
+      document.getElementById('hit-zone').style.display = 'block';
+      document.getElementById('hud-mode').textContent = 'MUSIC';
+
+      setScreen('game');
+      STATE = 'playing';
+
+      // BGM再生
+      if (bgmBuffer) {
+        bgmSource = audioCtx.createBufferSource();
+        bgmSource.buffer = bgmBuffer;
+        bgmSource.loop   = true;
+        bgmSource.connect(audioCtx.destination);
+        bgmSource.start(0);
+      }
+
+      // noteを定期スポーン
+      setTimeout(() => {
+        spawnFallingNote();
+        spawnTimerId = setInterval(spawnFallingNote, 650);
+      }, 500);
+
+      animFrameId = requestAnimationFrame(musicGameLoop);
+    }
+
+    function restartGame() {
+      if (gameMode === 'music') startMusicGame();
+      else startGame();
     }
 
     // ===== キーボード入力 (D=0, F=1, J=2, K=3) =====
@@ -567,9 +762,9 @@
           const input = document.getElementById('nickname-input');
           nickname = input.value.trim();
           if (!nickname) { input.focus(); return; }
-          startGame();
+          restartGame();
         } else if (STATE === 'gameover') {
-          startGame();
+          restartGame();
         }
         return;
       }
@@ -577,6 +772,11 @@
       const lane = KEY_LANE[e.key.toLowerCase()];
       if (lane === undefined) return;
       if (audioCtx.state === 'suspended') audioCtx.resume();
+
+      if (gameMode === 'music') {
+        handleMusicTap(lane);
+        return;
+      }
 
       const bottomNote = grid[ROWS - 1];
       if (bottomNote && bottomNote.lane === lane) {
@@ -593,13 +793,28 @@
     });
 
     // ===== イベント登録 =====
-    document.getElementById('btn-start').addEventListener('click', () => {
+    function checkNicknameAndStart() {
       const input = document.getElementById('nickname-input');
       nickname = input.value.trim();
       if (!nickname) { input.focus(); return; }
-      startGame();
+      restartGame();
+    }
+
+    document.getElementById('btn-mode-score').addEventListener('click', () => {
+      gameMode = 'score';
+      document.getElementById('btn-mode-score').classList.add('active');
+      document.getElementById('btn-mode-music').classList.remove('active');
+      checkNicknameAndStart();
     });
-    document.getElementById('btn-retry').addEventListener('click', startGame);
+
+    document.getElementById('btn-mode-music').addEventListener('click', () => {
+      gameMode = 'music';
+      document.getElementById('btn-mode-music').classList.add('active');
+      document.getElementById('btn-mode-score').classList.remove('active');
+      checkNicknameAndStart();
+    });
+
+    document.getElementById('btn-retry').addEventListener('click', restartGame);
 
     laneContainer.addEventListener('touchstart', handleInput, { passive: false });
     laneContainer.addEventListener('mousedown', handleInput);
