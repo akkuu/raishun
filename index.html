@@ -424,6 +424,7 @@
     let chartIdx       = 0;        // 次にスポーンする譜面インデックス
     let bgmStartTime   = 0;        // BGM開始時のaudioCtx.currentTime
     let bgmSource      = null;
+    let hp             = 1000;     // ミュージックモードHP
 
     // ===== 画面切り替え =====
     function setScreen(name) {
@@ -498,6 +499,7 @@
       grid = [];
       // タイマーとヒットゾーンをリセット
       hudTimer.style.display = '';
+      hudTimer.style.color = '';
       document.getElementById('hit-zone').style.display = 'none';
       document.getElementById('hud-mode').textContent = '';
       finalScoreVal.textContent = score;
@@ -646,6 +648,7 @@
       hudScore.textContent = '0';
       hudTimer.textContent = TIME_LIMIT;
       hudTimer.classList.remove('warning');
+      hudTimer.style.color = '';
       hudTimer.style.display = '';
       document.getElementById('hit-zone').style.display = 'none';
       document.getElementById('hud-mode').textContent = '';
@@ -659,6 +662,21 @@
     // ===== ミュージックモード =====
     function stopBGM() {
       if (bgmSource) { try { bgmSource.stop(); } catch(e) {} bgmSource = null; }
+    }
+
+    function takeDamage(lane) {
+      hp -= 100;
+      hudTimer.textContent = 'HP ' + hp;
+      if (hp <= 0) {
+        stopBGM();
+        flashAndGameOver(lane, ROWS - 1);
+      } else {
+        // 画面を一瞬赤くしてゲームは続行
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(255,68,68,0.35);z-index:100;pointer-events:none;animation:flashRed 0.3s ease 1;';
+        document.body.appendChild(overlay);
+        overlay.addEventListener('animationend', () => overlay.remove());
+      }
     }
 
     function spawnChartNote(lane) {
@@ -706,9 +724,8 @@
       }
 
       if (missedLane >= 0) {
-        stopBGM();
-        flashAndGameOver(missedLane, ROWS - 1);
-        return;
+        takeDamage(missedLane);
+        if (hp <= 0) return;
       }
 
       // 譜面終了 & 画面上のnoteが全部消えたらクリア
@@ -741,15 +758,15 @@
           return;
         }
       }
-      // ヒットゾーンにnoteがないのにタップ → ミス
-      stopBGM();
-      flashAndGameOver(tapLane, ROWS - 1);
+      // ヒットゾーンにnoteがないのにタップ → ダメージ
+      takeDamage(tapLane);
     }
 
     function startMusicGame() {
       audioCtx.resume();
       score    = 0;
       chartIdx = 0;
+      hp       = 1000;
 
       fallingNotes.forEach(n => n.el.remove());
       fallingNotes = [];
@@ -758,7 +775,10 @@
       stopBGM();
 
       hudScore.textContent = '0';
-      hudTimer.style.display = 'none';
+      hudTimer.textContent = 'HP 1000';
+      hudTimer.style.color = '#f55';
+      hudTimer.classList.remove('warning');
+      hudTimer.style.display = '';
       document.getElementById('hit-zone').style.display = 'block';
       document.getElementById('hud-mode').textContent = 'MUSIC';
 
