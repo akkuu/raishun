@@ -344,7 +344,8 @@
     const bgmReady = fetch('Kurenaishin.mp3')
       .then(r => r.arrayBuffer())
       .then(buf => audioCtx.decodeAudioData(buf))
-      .then(decoded => { bgmBuffer = decoded; });
+      .then(decoded => { bgmBuffer = decoded; })
+      .catch(() => {});
 
     function playGaho() {
       if (!gahoBuffer) return;
@@ -762,7 +763,7 @@
     }
 
     function restartGame() {
-      if (gameMode === 'music') startMusicGame();
+      if (gameMode === 'music') startMusicGame().catch(console.error);
       else startGame();
     }
 
