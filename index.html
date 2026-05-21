@@ -560,7 +560,7 @@
       document.getElementById('ranking-title').textContent =
         gameMode === 'music' ? 'ランキング（ミュージック）' : 'ランキング（スコアアタック）';
       try {
-        await saveScore(nickname, score, gameMode);
+        if (nickname) await saveScore(nickname, score, gameMode);
         const rankings = await loadRanking(gameMode);
         const list = document.getElementById('ranking-list');
         list.innerHTML = rankings.map((r, i) => {
@@ -882,9 +882,7 @@
     document.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         if (STATE === 'start') {
-          const input = document.getElementById('nickname-input');
-          nickname = input.value.trim();
-          if (!nickname) { input.focus(); return; }
+          nickname = document.getElementById('nickname-input').value.trim();
           restartGame();
         } else if (STATE === 'gameover') {
           if (gameMode === 'music') { bgmAudio.currentTime = 0; bgmAudio.play(); }
@@ -918,9 +916,7 @@
 
     // ===== イベント登録 =====
     function checkNicknameAndStart() {
-      const input = document.getElementById('nickname-input');
-      nickname = input.value.trim();
-      if (!nickname) { input.focus(); return; }
+      nickname = document.getElementById('nickname-input').value.trim();
       startGame();
     }
 
@@ -940,9 +936,7 @@
       gameMode = 'music';
       document.getElementById('btn-mode-music').classList.add('active');
       document.getElementById('btn-mode-score').classList.remove('active');
-      const input = document.getElementById('nickname-input');
-      nickname = input.value.trim();
-      if (!nickname) { input.focus(); return; }
+      nickname = document.getElementById('nickname-input').value.trim();
       playBGM();
       startMusicGame();
     });
