@@ -264,7 +264,6 @@
       <button class="btn-mode active" id="btn-mode-score">スコアアタック</button>
       <button class="btn-mode" id="btn-mode-music">ミュージック</button>
     </div>
-    <p id="music-loading" style="display:none;color:#aaf;font-size:18px;letter-spacing:2px;">ロード中です...</p>
   </div>
 
   <div id="screen-game" class="screen">
@@ -341,12 +340,8 @@
       .then(buf => audioCtx.decodeAudioData(buf))
       .then(decoded => { gahoBuffer = decoded; });
 
-    let bgmBuffer = null;
-    const bgmReady = fetch('Kurenaishin.mp3')
-      .then(r => r.arrayBuffer())
-      .then(buf => audioCtx.decodeAudioData(buf))
-      .then(decoded => { bgmBuffer = decoded; })
-      .catch(() => {});
+    const bgmAudio = new Audio('Kurenaishin.mp3');
+    bgmAudio.loop = true;
 
     function playGaho() {
       if (!gahoBuffer) return;
@@ -400,7 +395,6 @@
     let fallingNotes   = [];       // {lane, el, startTime}
     let spawnTimerId   = null;
     let lastSpawnLane  = -1;
-    let bgmSource      = null;
     let hp             = 1000;     // ミュージックモードHP
 
     // ===== 画面切り替え =====
@@ -469,7 +463,6 @@
       // ミュージックモードのクリーンアップ
       clearInterval(spawnTimerId);
       spawnTimerId = null;
-      if (bgmSource) { try { bgmSource.stop(); } catch(e) {} bgmSource = null; }
       fallingNotes.forEach(n => n.el.remove());
       fallingNotes = [];
       // スコアモードのクリーンアップ
@@ -639,7 +632,8 @@
 
     // ===== ミュージックモード =====
     function stopBGM() {
-      if (bgmSource) { try { bgmSource.stop(); } catch(e) {} bgmSource = null; }
+      bgmAudio.pause();
+      bgmAudio.currentTime = 0;
     }
 
     function takeDamage(lane) {
@@ -724,11 +718,7 @@
     }
 
     async function startMusicGame() {
-      if (!bgmBuffer) {
-        document.getElementById('music-loading').style.display = 'block';
-      }
-      await Promise.all([audioCtx.resume(), bgmReady]);
-      document.getElementById('music-loading').style.display = 'none';
+      await audioCtx.resume();
       score         = 0;
       hp            = 1000;
       lastSpawnLane = -1;
@@ -752,13 +742,8 @@
       STATE = 'playing';
 
       // BGM再生
-      if (bgmBuffer) {
-        bgmSource = audioCtx.createBufferSource();
-        bgmSource.buffer = bgmBuffer;
-        bgmSource.loop   = true;
-        bgmSource.connect(audioCtx.destination);
-        bgmSource.start(0);
-      }
+      bgmAudio.currentTime = 0;
+      bgmAudio.play();
 
       // ランダムにnoteをスポーン
       spawnFallingNote();
