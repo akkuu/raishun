@@ -88,6 +88,47 @@
       color: #111;
     }
 
+    /* ===== アップデート情報 ===== */
+    #update-info {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 10px;
+      padding: 14px 20px;
+      width: 320px;
+      text-align: left;
+    }
+
+    #update-info-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #ff69b4;
+      letter-spacing: 2px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    #update-info ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    #update-info ul li {
+      font-size: 13px;
+      color: #ddd;
+      padding-left: 14px;
+      position: relative;
+      line-height: 1.4;
+    }
+
+    #update-info ul li::before {
+      content: '•';
+      position: absolute;
+      left: 0;
+      color: #ff69b4;
+    }
+
     /* ===== ゲーム画面 ===== */
     #screen-game {
       flex-direction: column;
@@ -307,7 +348,15 @@
     <input id="nickname-input" type="text" placeholder="ニックネームを入力" maxlength="12">
     <div id="mode-buttons">
       <button class="btn-mode active" id="btn-mode-score">スコアアタック</button>
+      <button class="btn-mode" id="btn-mode-endless">エンドレシュン</button>
       <button class="btn-mode" id="btn-mode-music">ミュージック</button>
+    </div>
+    <div id="update-info">
+      <div id="update-info-title">アップデート情報</div>
+      <ul>
+        <li>エンドレシュンを追加しました</li>
+        <li>ミュージックを簡単にしました</li>
+      </ul>
     </div>
   </div>
 
@@ -357,7 +406,7 @@
     const db  = getFirestore(app);
 
     async function saveScore(nickname, score, mode) {
-      const collName = mode === 'music' ? 'scores_music' : 'scores';
+      const collName = mode === 'music' ? 'scores_music' : mode === 'endless' ? 'scores_endless' : 'scores';
       const ref = doc(db, collName, nickname);
       const existing = await getDoc(ref);
       if (!existing.exists() || existing.data().score < score) {
@@ -366,7 +415,7 @@
     }
 
     async function loadRanking(mode) {
-      const collName = mode === 'music' ? 'scores_music' : 'scores';
+      const collName = mode === 'music' ? 'scores_music' : mode === 'endless' ? 'scores_endless' : 'scores';
       const q = query(collection(db, collName), orderBy('score', 'desc'), limit(10));
       const snap = await getDocs(q);
       return snap.docs.map(d => d.data());
@@ -441,7 +490,7 @@
 
     // ===== ミュージックモード状態 =====
     const INITIAL_FALL_DURATION = 0.5;    // 開始時のnote落下秒数
-    const SPEED_DOUBLE_SECS     = 120;    // 60秒で1.5倍、120秒で2倍になる
+    const SPEED_DOUBLE_SECS     = 180;    // 3分で2倍になる
     // BPM155: 2分・4分・8分・12分・16分音符 (ms)
     const SPAWN_INTERVALS = [774, 387, 194, 129, 97];
 
@@ -466,10 +515,7 @@
     const HIT_ZONE_RATIO = 1.0;
     const NOTE_H_RATIO   = 0.325;
     let fallingNotes   = [];
-    let spawnTimerId    = null;
-    let measureTimerId  = null;
-    const BEAT_MS       = 60000 / 155;        // 1拍 ≈ 387ms
-    const MEASURE_MS    = BEAT_MS * 4;        // 1小節 ≈ 1548ms
+    let spawnTimerId   = null;
     let lastSpawnLane  = -1;
     let hp             = 1000;
     let musicStartTime = 0;        // audioCtx.currentTime at game start
@@ -484,13 +530,6 @@
       if (STATE !== 'playing' || gameMode !== 'music') return;
       spawnFallingNote();
       spawnTimerId = setTimeout(scheduleSpawn, getSpawnInterval());
-    }
-
-    function scheduleMeasureEnd() {
-      if (STATE !== 'playing' || gameMode !== 'music') return;
-      spawnFallingNote();
-      const speedMult = 1 + (audioCtx.currentTime - musicStartTime) / SPEED_DOUBLE_SECS;
-      measureTimerId = setTimeout(scheduleMeasureEnd, MEASURE_MS / speedMult);
     }
 
     // ===== 画面切り替え =====
@@ -544,7 +583,7 @@
 
     // ===== ランク判定 =====
     function getRank(s, mode) {
-      const m = mode === 'music' ? 50000 : 1;
+      const m = mode === 'music' ? 50000 : mode === 'endless' ? 10 : 1;
       if (s < 30  * m) return { name: '八島',      image: 'pig.JPG' };
       if (s < 60  * m) return { name: 'アンマー族', image: null };
       if (s < 100 * m) return { name: '非発展',    image: 'homomaru.JPG' };
@@ -559,9 +598,7 @@
       cancelAnimationFrame(animFrameId);
       // ミュージックモードのクリーンアップ
       clearTimeout(spawnTimerId);
-      clearTimeout(measureTimerId);
       spawnTimerId = null;
-      measureTimerId = null;
       fallingNotes.forEach(n => n.el.remove());
       fallingNotes = [];
       // スコアモードのクリーンアップ
@@ -589,7 +626,9 @@
 
       // スコア保存 & ランキング表示
       document.getElementById('ranking-title').textContent =
-        gameMode === 'music' ? 'ランキング（ミュージック）' : 'ランキング（スコアアタック）';
+        gameMode === 'music' ? 'ランキング（ミュージック）' :
+        gameMode === 'endless' ? 'ランキング（エンドレシュン）' :
+        'ランキング（スコアアタック）';
       try {
         if (nickname) await saveScore(nickname, score, gameMode);
         const rankings = await loadRanking(gameMode);
@@ -717,6 +756,45 @@
       hudTimer.classList.toggle('warning', timeLeft < 10);
 
       animFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    // ===== エンドレシュンループ =====
+    function endlessGameLoop(timestamp) {
+      if (STATE !== 'playing') return;
+      const rawDelta = lastTimestamp === null ? 0 : (timestamp - lastTimestamp) / 1000;
+      lastTimestamp = timestamp;
+      elapsedTotal += Math.min(rawDelta, 0.1);
+      hudTimer.textContent = Math.floor(elapsedTotal) + 's';
+      animFrameId = requestAnimationFrame(endlessGameLoop);
+    }
+
+    // ===== エンドレシュン開始 =====
+    function startEndlessGame() {
+      audioCtx.resume();
+      score         = 0;
+      elapsedTotal  = 0;
+      lastTimestamp = null;
+      timerStarted  = true;
+
+      fallingNotes.forEach(n => n.el.remove());
+      fallingNotes = [];
+      grid.forEach(note => note.el.remove());
+      grid = [];
+
+      hudScore.textContent = '0';
+      hudScore.classList.remove('music-score');
+      hudCombo.style.display = 'none';
+      hudTimer.textContent = '0s';
+      hudTimer.style.color = '#aaf';
+      hudTimer.classList.remove('warning');
+      hudTimer.style.display = '';
+      document.getElementById('hit-zone').style.display = 'none';
+      document.getElementById('hud-mode').textContent = 'ENDLESS';
+
+      setScreen('game');
+      STATE = 'playing';
+      initGrid();
+      animFrameId = requestAnimationFrame(endlessGameLoop);
     }
 
     // ===== スコアモード開始 =====
@@ -871,7 +949,6 @@
       grid.forEach(note => note.el.remove());
       grid = [];
       clearTimeout(spawnTimerId);
-      clearTimeout(measureTimerId);
 
       combo = 0;
       hudScore.textContent = '0';
@@ -899,13 +976,13 @@
         STATE = 'playing';
         musicStartTime = audioCtx.currentTime;
         scheduleSpawn();
-        measureTimerId = setTimeout(scheduleMeasureEnd, MEASURE_MS);
         animFrameId = requestAnimationFrame(musicGameLoop);
       }, 2000);
     }
 
     function restartGame() {
       if (gameMode === 'music') startMusicGame();
+      else if (gameMode === 'endless') startEndlessGame();
       else startGame();
     }
 
@@ -958,6 +1035,7 @@
     document.getElementById('btn-mode-score').addEventListener('click', () => {
       gameMode = 'score';
       document.getElementById('btn-mode-score').classList.add('active');
+      document.getElementById('btn-mode-endless').classList.remove('active');
       document.getElementById('btn-mode-music').classList.remove('active');
       checkNicknameAndStart();
     });
@@ -967,10 +1045,20 @@
       bgmAudio.play().catch(console.error);
     }
 
+    document.getElementById('btn-mode-endless').addEventListener('click', () => {
+      gameMode = 'endless';
+      document.getElementById('btn-mode-endless').classList.add('active');
+      document.getElementById('btn-mode-score').classList.remove('active');
+      document.getElementById('btn-mode-music').classList.remove('active');
+      nickname = document.getElementById('nickname-input').value.trim();
+      startEndlessGame();
+    });
+
     document.getElementById('btn-mode-music').addEventListener('click', () => {
       gameMode = 'music';
       document.getElementById('btn-mode-music').classList.add('active');
       document.getElementById('btn-mode-score').classList.remove('active');
+      document.getElementById('btn-mode-endless').classList.remove('active');
       nickname = document.getElementById('nickname-input').value.trim();
       playBGM();
       startMusicGame();
