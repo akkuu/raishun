@@ -242,6 +242,12 @@
       box-shadow: 0 0 12px #ff4400;
     }
 
+    .note-long {
+      background: linear-gradient(to bottom, #88aaff, #2244cc);
+      outline: 3px solid #aabbff;
+      box-shadow: 0 0 14px #4466ff;
+    }
+
     /* ===== ゲームオーバー画面 ===== */
     #screen-gameover {
       background-color: #111;
@@ -358,6 +364,8 @@
     <div id="update-info">
       <div id="update-info-title">アップデート情報</div>
       <ul>
+        <li>ロングノーツを追加しました</li>
+        <li>ピアノタイルで一番下を押さないとミスにするようにしました</li>
         <li>ピアノタイルを追加しました</li>
         <li>エンドレシュンを追加しました</li>
         <li>ミュージックを簡単にしました</li>
@@ -522,6 +530,8 @@
     let fallingNotes   = [];
     let spawnTimerId   = null;
     let lastSpawnLane  = -1;
+    let heldLongNote   = null;
+    let pianoPrevTime  = 0;
     let hp             = 1000;
     let musicStartTime = 0;        // audioCtx.currentTime at game start
 
@@ -857,8 +867,10 @@
 
     function spawnFallingNote() {
       if (STATE !== 'playing') return;
-      const screenH = laneContainer.offsetHeight;
-      const noteH   = Math.floor(screenH * NOTE_H_RATIO);
+      const screenH   = laneContainer.offsetHeight;
+      const baseNoteH = Math.floor(screenH * NOTE_H_RATIO);
+      const isLong    = gameMode === 'piano' && Math.random() < 1 / 10;
+      const actualH   = isLong ? baseNoteH * 2 : baseNoteH;
       let lane;
       do { lane = Math.floor(Math.random() * 4); } while (lane === lastSpawnLane);
       lastSpawnLane = lane;
@@ -866,11 +878,11 @@
       const heal = gameMode === 'music' && rand < 1 / 50;
       const trap = gameMode === 'music' && !heal && rand < 1 / 50 + 1 / 30;
       const el = document.createElement('div');
-      el.className = heal ? 'note note-heal' : trap ? 'note note-trap' : 'note';
-      el.style.height = noteH + 'px';
-      el.style.top    = -noteH + 'px';
+      el.className = heal ? 'note note-heal' : trap ? 'note note-trap' : isLong ? 'note note-long' : 'note';
+      el.style.height = actualH + 'px';
+      el.style.top    = -actualH + 'px';
       laneEls[lane].appendChild(el);
-      fallingNotes.push({ lane, el, startTime: audioCtx.currentTime, heal, trap });
+      fallingNotes.push({ lane, el, startTime: audioCtx.currentTime, heal, trap, long: isLong, held: false, activated: false, noteH: actualH });
     }
 
     function musicGameLoop() {
@@ -949,19 +961,39 @@
       if (STATE !== 'playing') return;
       const screenH   = laneContainer.offsetHeight;
       const fallSpeed = screenH / getFallDuration();
-      const noteH     = Math.floor(screenH * NOTE_H_RATIO);
       const now       = audioCtx.currentTime;
+      const delta     = Math.min(now - pianoPrevTime, 0.1);
+      pianoPrevTime   = now;
 
       for (let i = fallingNotes.length - 1; i >= 0; i--) {
         const note    = fallingNotes[i];
-        const noteTop = (now - note.startTime) * fallSpeed - noteH;
+        const noteTop = (now - note.startTime) * fallSpeed - note.noteH;
         note.el.style.top = noteTop + 'px';
-        if (noteTop > screenH) {
-          note.el.remove();
-          fallingNotes.splice(i, 1);
-          stopBGM();
-          flashAndGameOver(note.lane, ROWS - 1);
-          return;
+
+        if (note.long) {
+          if (note.held) {
+            score += Math.round(10000 * delta);
+            hudScore.textContent = score;
+          }
+          if (noteTop > screenH) {
+            note.el.remove();
+            fallingNotes.splice(i, 1);
+            if (!note.activated) {
+              heldLongNote = null;
+              stopBGM();
+              flashAndGameOver(note.lane, ROWS - 1);
+              return;
+            }
+            if (heldLongNote === note) heldLongNote = null;
+          }
+        } else {
+          if (noteTop > screenH) {
+            note.el.remove();
+            fallingNotes.splice(i, 1);
+            stopBGM();
+            flashAndGameOver(note.lane, ROWS - 1);
+            return;
+          }
         }
       }
       animFrameId = requestAnimationFrame(pianoGameLoop);
@@ -970,15 +1002,23 @@
     function handlePianoTap(tapLane) {
       const screenH    = laneContainer.offsetHeight;
       const fallSpeed  = screenH / getFallDuration();
-      const noteH      = Math.floor(screenH * NOTE_H_RATIO);
       const hitZoneTop = screenH * (1 - HIT_ZONE_RATIO);
       const now        = audioCtx.currentTime;
 
       for (let i = 0; i < fallingNotes.length; i++) {
         const note    = fallingNotes[i];
-        const noteTop = (now - note.startTime) * fallSpeed - noteH;
-        const noteBot = noteTop + noteH;
+        const noteTop = (now - note.startTime) * fallSpeed - note.noteH;
+        const noteBot = noteTop + note.noteH;
         if (note.lane === tapLane && noteBot > hitZoneTop && noteTop < screenH) {
+          if (note.long) {
+            if (!note.activated) {
+              note.activated = true;
+              note.held      = true;
+              heldLongNote   = note;
+              playTapSound();
+            }
+            return;
+          }
           note.el.remove();
           fallingNotes.splice(i, 1);
           score += 10000;
@@ -1007,7 +1047,9 @@
       grid = [];
       clearTimeout(spawnTimerId);
 
-      combo = 0;
+      combo         = 0;
+      heldLongNote  = null;
+
       hudScore.textContent = '0';
       hudScore.classList.add('music-score');
       hudCombo.textContent = '0';
@@ -1029,6 +1071,7 @@
         countEl.remove();
         STATE = 'playing';
         musicStartTime = audioCtx.currentTime;
+        pianoPrevTime  = audioCtx.currentTime;
         scheduleSpawn();
         animFrameId = requestAnimationFrame(pianoGameLoop);
       }, 2000);
@@ -1187,8 +1230,17 @@
       setScreen('start');
     });
 
+    function handlePianoRelease() {
+      if (heldLongNote) {
+        heldLongNote.held = false;
+        heldLongNote = null;
+      }
+    }
+
     laneContainer.addEventListener('touchstart', handleInput, { passive: false });
     laneContainer.addEventListener('mousedown', handleInput);
+    laneContainer.addEventListener('touchend',  () => { if (gameMode === 'piano') handlePianoRelease(); }, { passive: false });
+    laneContainer.addEventListener('mouseup',   () => { if (gameMode === 'piano') handlePianoRelease(); });
 
     // ===== 初期表示 =====
     setScreen('start');
