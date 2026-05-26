@@ -66,12 +66,15 @@
 
     #mode-buttons {
       display: flex;
-      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
       margin-top: 8px;
+      max-width: 360px;
     }
 
     .btn-mode {
-      padding: 16px 32px;
+      padding: 14px 22px;
       font-size: 18px;
       font-weight: 700;
       background: rgba(255,255,255,0.15);
@@ -350,10 +353,12 @@
       <button class="btn-mode active" id="btn-mode-score">スコアアタック</button>
       <button class="btn-mode" id="btn-mode-endless">エンドレシュン</button>
       <button class="btn-mode" id="btn-mode-music">ミュージック</button>
+      <button class="btn-mode" id="btn-mode-piano">ピアノタイル</button>
     </div>
     <div id="update-info">
       <div id="update-info-title">アップデート情報</div>
       <ul>
+        <li>ピアノタイルを追加しました</li>
         <li>エンドレシュンを追加しました</li>
         <li>ミュージックを簡単にしました</li>
       </ul>
@@ -406,7 +411,7 @@
     const db  = getFirestore(app);
 
     async function saveScore(nickname, score, mode) {
-      const collName = mode === 'music' ? 'scores_music' : mode === 'endless' ? 'scores_endless' : 'scores';
+      const collName = mode === 'music' ? 'scores_music' : mode === 'endless' ? 'scores_endless' : mode === 'piano' ? 'scores_piano' : 'scores';
       const ref = doc(db, collName, nickname);
       const existing = await getDoc(ref);
       if (!existing.exists() || existing.data().score < score) {
@@ -415,7 +420,7 @@
     }
 
     async function loadRanking(mode) {
-      const collName = mode === 'music' ? 'scores_music' : mode === 'endless' ? 'scores_endless' : 'scores';
+      const collName = mode === 'music' ? 'scores_music' : mode === 'endless' ? 'scores_endless' : mode === 'piano' ? 'scores_piano' : 'scores';
       const q = query(collection(db, collName), orderBy('score', 'desc'), limit(10));
       const snap = await getDocs(q);
       return snap.docs.map(d => d.data());
@@ -527,7 +532,7 @@
     }
 
     function scheduleSpawn() {
-      if (STATE !== 'playing' || gameMode !== 'music') return;
+      if (STATE !== 'playing' || (gameMode !== 'music' && gameMode !== 'piano')) return;
       spawnFallingNote();
       spawnTimerId = setTimeout(scheduleSpawn, getSpawnInterval());
     }
@@ -583,7 +588,7 @@
 
     // ===== ランク判定 =====
     function getRank(s, mode) {
-      const m = mode === 'music' ? 50000 : mode === 'endless' ? 10 : 1;
+      const m = mode === 'music' ? 50000 : mode === 'endless' ? 10 : mode === 'piano' ? 5 : 1;
       if (s < 30  * m) return { name: '八島',      image: 'pig.JPG' };
       if (s < 60  * m) return { name: 'アンマー族', image: null };
       if (s < 100 * m) return { name: '非発展',    image: 'homomaru.JPG' };
@@ -628,6 +633,7 @@
       document.getElementById('ranking-title').textContent =
         gameMode === 'music' ? 'ランキング（ミュージック）' :
         gameMode === 'endless' ? 'ランキング（エンドレシュン）' :
+        gameMode === 'piano' ? 'ランキング（ピアノタイル）' :
         'ランキング（スコアアタック）';
       try {
         if (nickname) await saveScore(nickname, score, gameMode);
@@ -698,12 +704,13 @@
           }))
         : [{ x: e.clientX - rect.left, y: e.clientY - rect.top }];
 
-      if (gameMode === 'music') {
+      if (gameMode === 'music' || gameMode === 'piano') {
         const hitZoneTopY = laneContainer.offsetHeight * (1 - HIT_ZONE_RATIO);
         if (points[0].y < hitZoneTopY) return;
         const tapLane = Math.floor(points[0].x / lw);
         flashLane(tapLane);
-        handleMusicTap(tapLane);
+        if (gameMode === 'piano') handlePianoTap(tapLane);
+        else handleMusicTap(tapLane);
         return;
       }
 
@@ -856,8 +863,8 @@
       do { lane = Math.floor(Math.random() * 4); } while (lane === lastSpawnLane);
       lastSpawnLane = lane;
       const rand = Math.random();
-      const heal = rand < 1 / 50;
-      const trap = !heal && rand < 1 / 50 + 1 / 30;
+      const heal = gameMode === 'music' && rand < 1 / 50;
+      const trap = gameMode === 'music' && !heal && rand < 1 / 50 + 1 / 30;
       const el = document.createElement('div');
       el.className = heal ? 'note note-heal' : trap ? 'note note-trap' : 'note';
       el.style.height = noteH + 'px';
@@ -937,6 +944,94 @@
       }
     }
 
+    // ===== ピアノタイルループ =====
+    function pianoGameLoop() {
+      if (STATE !== 'playing') return;
+      const screenH   = laneContainer.offsetHeight;
+      const fallSpeed = screenH / getFallDuration();
+      const noteH     = Math.floor(screenH * NOTE_H_RATIO);
+      const now       = audioCtx.currentTime;
+
+      for (let i = fallingNotes.length - 1; i >= 0; i--) {
+        const note    = fallingNotes[i];
+        const noteTop = (now - note.startTime) * fallSpeed - noteH;
+        note.el.style.top = noteTop + 'px';
+        if (noteTop > screenH) {
+          note.el.remove();
+          fallingNotes.splice(i, 1);
+          stopBGM();
+          flashAndGameOver(note.lane, ROWS - 1);
+          return;
+        }
+      }
+      animFrameId = requestAnimationFrame(pianoGameLoop);
+    }
+
+    function handlePianoTap(tapLane) {
+      const screenH    = laneContainer.offsetHeight;
+      const fallSpeed  = screenH / getFallDuration();
+      const noteH      = Math.floor(screenH * NOTE_H_RATIO);
+      const hitZoneTop = screenH * (1 - HIT_ZONE_RATIO);
+      const now        = audioCtx.currentTime;
+
+      for (let i = 0; i < fallingNotes.length; i++) {
+        const note    = fallingNotes[i];
+        const noteTop = (now - note.startTime) * fallSpeed - noteH;
+        const noteBot = noteTop + noteH;
+        if (note.lane === tapLane && noteBot > hitZoneTop && noteTop < screenH) {
+          note.el.remove();
+          fallingNotes.splice(i, 1);
+          score += 10000;
+          hudScore.textContent = score;
+          combo++;
+          hudCombo.textContent = combo;
+          playTapSound();
+          return;
+        }
+      }
+    }
+
+    // ===== ピアノタイル開始 =====
+    function startPianoGame() {
+      audioCtx.resume();
+      playBGM();
+
+      score         = 0;
+      lastSpawnLane = -1;
+
+      fallingNotes.forEach(n => n.el.remove());
+      fallingNotes = [];
+      grid.forEach(note => note.el.remove());
+      grid = [];
+      clearTimeout(spawnTimerId);
+
+      combo = 0;
+      hudScore.textContent = '0';
+      hudScore.classList.add('music-score');
+      hudCombo.textContent = '0';
+      hudCombo.style.display = 'block';
+      hudTimer.style.display = 'none';
+      document.getElementById('hit-zone').style.display = 'block';
+      document.getElementById('hud-mode').textContent = 'PIANO TILES';
+
+      setScreen('game');
+      STATE = 'countdown';
+
+      const countEl = document.createElement('div');
+      countEl.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:140px;font-weight:900;color:#fff;z-index:200;pointer-events:none;text-shadow:0 0 24px rgba(0,0,0,0.9);';
+      countEl.textContent = '2';
+      document.body.appendChild(countEl);
+
+      setTimeout(() => { countEl.textContent = '1'; }, 1000);
+      setTimeout(() => {
+        countEl.remove();
+        STATE = 'playing';
+        musicStartTime = audioCtx.currentTime;
+        scheduleSpawn();
+        animFrameId = requestAnimationFrame(pianoGameLoop);
+      }, 2000);
+    }
+
     function startMusicGame() {
       audioCtx.resume();
 
@@ -983,6 +1078,7 @@
     function restartGame() {
       if (gameMode === 'music') startMusicGame();
       else if (gameMode === 'endless') startEndlessGame();
+      else if (gameMode === 'piano') startPianoGame();
       else startGame();
     }
 
@@ -1005,9 +1101,10 @@
       if (lane === undefined) return;
       if (audioCtx.state === 'suspended') audioCtx.resume();
 
-      if (gameMode === 'music') {
+      if (gameMode === 'music' || gameMode === 'piano') {
         flashLane(lane);
-        handleMusicTap(lane);
+        if (gameMode === 'piano') handlePianoTap(lane);
+        else handleMusicTap(lane);
         return;
       }
 
@@ -1037,6 +1134,7 @@
       document.getElementById('btn-mode-score').classList.add('active');
       document.getElementById('btn-mode-endless').classList.remove('active');
       document.getElementById('btn-mode-music').classList.remove('active');
+      document.getElementById('btn-mode-piano').classList.remove('active');
       checkNicknameAndStart();
     });
 
@@ -1050,6 +1148,7 @@
       document.getElementById('btn-mode-endless').classList.add('active');
       document.getElementById('btn-mode-score').classList.remove('active');
       document.getElementById('btn-mode-music').classList.remove('active');
+      document.getElementById('btn-mode-piano').classList.remove('active');
       nickname = document.getElementById('nickname-input').value.trim();
       startEndlessGame();
     });
@@ -1059,13 +1158,24 @@
       document.getElementById('btn-mode-music').classList.add('active');
       document.getElementById('btn-mode-score').classList.remove('active');
       document.getElementById('btn-mode-endless').classList.remove('active');
+      document.getElementById('btn-mode-piano').classList.remove('active');
       nickname = document.getElementById('nickname-input').value.trim();
       playBGM();
       startMusicGame();
     });
 
+    document.getElementById('btn-mode-piano').addEventListener('click', () => {
+      gameMode = 'piano';
+      document.getElementById('btn-mode-piano').classList.add('active');
+      document.getElementById('btn-mode-score').classList.remove('active');
+      document.getElementById('btn-mode-endless').classList.remove('active');
+      document.getElementById('btn-mode-music').classList.remove('active');
+      nickname = document.getElementById('nickname-input').value.trim();
+      startPianoGame();
+    });
+
     document.getElementById('btn-retry').addEventListener('click', () => {
-      if (gameMode === 'music') playBGM();
+      if (gameMode === 'music' || gameMode === 'piano') playBGM();
       restartGame();
     });
 
