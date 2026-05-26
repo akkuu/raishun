@@ -249,6 +249,12 @@
       box-shadow: 0 0 14px #4466ff;
     }
 
+    .note-long.held {
+      outline: 3px solid #ccddff;
+      box-shadow: 0 0 24px #aabbff, 0 0 48px rgba(180,210,255,0.7);
+      filter: brightness(1.4);
+    }
+
     /* ===== ゲームオーバー画面 ===== */
     #screen-gameover {
       background-color: #111;
@@ -365,6 +371,7 @@
     <div id="update-info">
       <div id="update-info-title">アップデート情報</div>
       <ul>
+        <li>ロングノーツを押している間は光るようにしました</li>
         <li>ロングノーツを追加しました</li>
         <li>ピアノタイルで一番下を押さないとミスにするようにしました</li>
         <li>ピアノタイルを追加しました</li>
@@ -1016,6 +1023,7 @@
               note.activated = true;
               note.held      = true;
               heldLongNote   = note;
+              note.el.classList.add('held');
               playTapSound();
             }
             return;
@@ -1234,6 +1242,7 @@
     function handlePianoRelease() {
       if (heldLongNote) {
         heldLongNote.held = false;
+        heldLongNote.el.classList.remove('held');
         heldLongNote = null;
       }
     }
