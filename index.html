@@ -870,7 +870,7 @@
       const screenH   = laneContainer.offsetHeight;
       const baseNoteH = Math.floor(screenH * NOTE_H_RATIO);
       const isLong    = gameMode === 'piano' && Math.random() < 1 / 10;
-      const actualH   = isLong ? baseNoteH * 2 : baseNoteH;
+      const actualH   = isLong ? baseNoteH * (Math.floor(Math.random() * 5) + 2) : baseNoteH;
       let lane;
       do { lane = Math.floor(Math.random() * 4); } while (lane === lastSpawnLane);
       lastSpawnLane = lane;
