@@ -381,6 +381,7 @@
       <button class="btn-mode" id="btn-mode-endless">エンドレシュン</button>
       <button class="btn-mode" id="btn-mode-music">ミュージック</button>
       <button class="btn-mode" id="btn-mode-piano">ピアノタイル</button>
+      <button class="btn-mode" id="btn-mode-charttest">テスト譜面(仮)</button>
     </div>
     <div id="update-info">
       <div id="update-info-title">アップデート情報</div>
@@ -426,7 +427,7 @@
   <script type="module">
     // ===== Firebase =====
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-    import { getFirestore, doc, getDoc, setDoc, collection, getDocs, orderBy, query, limit, serverTimestamp }
+    import { getFirestore, doc, getDoc, setDoc, addDoc, collection, getDocs, orderBy, query, limit, serverTimestamp }
       from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
     const firebaseConfig = {
@@ -564,6 +565,48 @@
     let hp             = 1000;
     let musicStartTime = 0;        // nowSec() at game start
 
+    // ===== 譜面メーカー: 同梱曲テーブル（songIdで参照。mp3を増やすにはここに1行追加）=====
+    const SONGS = {
+      kurenaishin: { title: '紅鎮', file: 'Kurenaishin.mp3' },
+    };
+
+    // ===== 譜面再生エンジンの状態 =====
+    let currentChart   = null;        // 再生中の譜面オブジェクト
+    let chartType      = 'piano';     // 'music' | 'piano'（ルール種別）
+    let chartNotes     = [];          // マスターnote一覧（.spawnedフラグ付き）
+    let chartPrevTime  = 0;           // ロング加点用の前フレーム曲時間
+    const chartAudio   = new Audio(); // 譜面専用オーディオ（bgmAudioとは別）
+    chartAudio.loop    = false;
+    // audio.currentTimeは粗く更新されるため、performance.nowで補間して滑らかな曲時間を得る
+    let songClockBaseAudio = 0;
+    let songClockBasePerf  = 0;
+    function getSongTime() {
+      const audioT  = chartAudio.currentTime;
+      const perfNow = performance.now() / 1000;
+      if (Math.abs(audioT - songClockBaseAudio) > 1e-4) {
+        songClockBaseAudio = audioT;       // 音声が進んだ→基準を更新
+        songClockBasePerf  = perfNow;
+        return audioT;
+      }
+      return songClockBaseAudio + (perfNow - songClockBasePerf);  // 補間
+    }
+    function stopChartAudio() { chartAudio.pause(); }
+
+    // Phase1動作確認用の仮譜面（Phase4で本物のエディタ/ブラウズに置き換え）
+    const TEST_CHART = {
+      title: 'テスト譜面', author: 'test', songId: 'kurenaishin', chartType: 'piano',
+      bpm: 120, offset: 0, noteSpeed: 0.6,
+      notes: [
+        { lane: 0, t: 2.0, type: 'normal' }, { lane: 1, t: 2.5, type: 'normal' },
+        { lane: 2, t: 3.0, type: 'normal' }, { lane: 3, t: 3.5, type: 'normal' },
+        { lane: 0, t: 4.0, type: 'normal' }, { lane: 2, t: 4.5, type: 'normal' },
+        { lane: 1, t: 5.0, type: 'long', dur: 1.0 },
+        { lane: 3, t: 6.5, type: 'normal' }, { lane: 0, t: 7.0, type: 'normal' },
+        { lane: 2, t: 7.5, type: 'normal' }, { lane: 1, t: 8.0, type: 'normal' },
+        { lane: 3, t: 8.5, type: 'normal' },
+      ],
+    };
+
     // フレーム単位で滑らかに進む高精度クロック(秒)。requestAnimationFrameと同じ時間軸。
     const nowSec = () => performance.now() / 1000;
 
@@ -643,9 +686,10 @@
     async function triggerGameOver() {
       STATE = 'gameover';
       cancelAnimationFrame(animFrameId);
-      // ミュージックモードのクリーンアップ
+      // ミュージック/譜面モードのクリーンアップ
       clearTimeout(spawnTimerId);
       spawnTimerId = null;
+      chartAudio.pause();
       fallingNotes.forEach(n => n.el.remove());
       fallingNotes = [];
       // スコアモードのクリーンアップ
@@ -670,6 +714,13 @@
         goScreen.style.backgroundImage = 'none';
       }
       setScreen('gameover');
+
+      // 譜面モードはランキングを使わず結果のみ表示（MVP）
+      if (gameMode === 'custom') {
+        document.getElementById('ranking-title').textContent = (currentChart && currentChart.title) ? currentChart.title : '結果';
+        document.getElementById('ranking-list').innerHTML = '';
+        return;
+      }
 
       // スコア保存 & ランキング表示
       document.getElementById('ranking-title').textContent =
@@ -746,12 +797,13 @@
           }))
         : [{ x: e.clientX - rect.left, y: e.clientY - rect.top }];
 
-      if (gameMode === 'music' || gameMode === 'piano') {
+      if (gameMode === 'music' || gameMode === 'piano' || gameMode === 'custom') {
         const hitZoneTopY = laneContainer.offsetHeight * (1 - HIT_ZONE_RATIO);
         if (points[0].y < hitZoneTopY) return;
         const tapLane = Math.floor(points[0].x / lw);
         flashLane(tapLane);
-        if (gameMode === 'piano') handlePianoTap(tapLane);
+        if (gameMode === 'custom') handleChartTap(tapLane);
+        else if (gameMode === 'piano') handlePianoTap(tapLane);
         else handleMusicTap(tapLane);
         return;
       }
@@ -1071,6 +1123,172 @@
       flashAndGameOver(tapLane, ROWS - 1);
     }
 
+    // ===== 譜面再生: ループ =====
+    function chartGameLoop() {
+      if (STATE !== 'playing') return;
+      const screenH   = laneContainer.offsetHeight;
+      const fallDur   = currentChart.noteSpeed || 0.6;   // 一定（加速なし）
+      const fallSpeed = screenH / fallDur;
+      const baseNoteH = Math.floor(screenH * NOTE_H_RATIO);
+      const songTime  = getSongTime();
+      const delta     = Math.min(songTime - chartPrevTime, 0.1);
+      chartPrevTime   = songTime;
+
+      // 出現時刻になったnoteをスポーン（t - fallDur で画面上端から落とし始め、tで最下部に到達）
+      for (const cn of chartNotes) {
+        if (cn.spawned) continue;
+        if (cn.t - fallDur <= songTime) {
+          cn.spawned = true;
+          const isLong = cn.type === 'long';
+          const noteH  = isLong ? baseNoteH + cn.dur * fallSpeed : baseNoteH;
+          const el = document.createElement('div');
+          el.className = cn.type === 'heal'   ? 'note note-heal'
+                       : cn.type === 'damage' ? 'note note-trap'
+                       : isLong               ? 'note note-long' : 'note';
+          el.style.height = noteH + 'px';
+          el.style.top    = '0px';
+          laneEls[cn.lane].appendChild(el);
+          fallingNotes.push({ lane: cn.lane, el, noteStart: cn.t - fallDur, t: cn.t,
+            type: cn.type, dur: cn.dur || 0, noteH, long: isLong, held: false, activated: false });
+        }
+      }
+
+      // 位置更新 & 見逃し判定
+      for (let i = fallingNotes.length - 1; i >= 0; i--) {
+        const note    = fallingNotes[i];
+        const noteTop = (songTime - note.noteStart) * fallSpeed - note.noteH;
+        note.el.style.transform = 'translate3d(0,' + noteTop + 'px,0)';
+
+        if (note.long && note.held) {
+          score += Math.round(10000 * delta);
+          hudScore.textContent = score;
+        }
+
+        if (noteTop > screenH) {              // 最下部を通過
+          note.el.remove();
+          fallingNotes.splice(i, 1);
+          if (note.type === 'long') {
+            if (!note.activated) {            // ロング未タップ = ミス
+              if (chartType === 'piano') { stopChartAudio(); flashAndGameOver(note.lane, ROWS - 1); return; }
+              else { takeDamage(note.lane); if (hp <= 0) return; }
+            } else if (heldLongNote === note) { heldLongNote = null; }
+          } else if (note.type === 'normal') {
+            if (chartType === 'piano') { stopChartAudio(); flashAndGameOver(note.lane, ROWS - 1); return; }
+            else { takeDamage(note.lane); if (hp <= 0) return; }
+          }
+          // heal/damage は見逃しても無害（回避できたとみなす）
+        }
+      }
+
+      // 全note消化＝クリア → 結果画面へ
+      if (fallingNotes.length === 0 && chartNotes.every(c => c.spawned)) {
+        stopChartAudio();
+        triggerGameOver();
+        return;
+      }
+
+      animFrameId = requestAnimationFrame(chartGameLoop);
+    }
+
+    // ===== 譜面再生: タップ判定 =====
+    function handleChartTap(tapLane) {
+      const screenH    = laneContainer.offsetHeight;
+      const fallDur    = currentChart.noteSpeed || 0.6;
+      const fallSpeed  = screenH / fallDur;
+      const hitZoneTop = screenH * (1 - HIT_ZONE_RATIO);
+      const songTime   = getSongTime();
+
+      for (let i = 0; i < fallingNotes.length; i++) {
+        const note    = fallingNotes[i];
+        const noteTop = (songTime - note.noteStart) * fallSpeed - note.noteH;
+        const noteBot = noteTop + note.noteH;
+        if (note.lane === tapLane && noteBot > hitZoneTop && noteTop < screenH) {
+          if (note.type === 'long') {
+            if (!note.activated) {
+              note.activated = true; note.held = true; heldLongNote = note;
+              note.el.classList.add('held'); playTapSound();
+            }
+            return;
+          }
+          note.el.remove();
+          fallingNotes.splice(i, 1);
+          if (note.type === 'damage') { takeDamage(tapLane, 500); return; }
+          if (note.type === 'heal') {
+            hp = Math.min(hp + 200, 9999);
+            hudTimer.textContent = 'HP ' + hp;
+            combo++; hudCombo.textContent = combo; playTapSound();
+            return;
+          }
+          score += 10000; hudScore.textContent = score; popScore();
+          combo++; hudCombo.textContent = combo; playTapSound();
+          return;
+        }
+      }
+      // どのnoteにも当たらなかった: ピアノ型は即ゲームオーバー、ミュージック型は無害
+      if (chartType === 'piano') { stopChartAudio(); flashAndGameOver(tapLane, ROWS - 1); }
+    }
+
+    // ===== 譜面再生: 開始（fromTimeで途中開始＝テストプレイに対応）=====
+    function startChartGame(chart, fromTime = 0) {
+      audioCtx.resume();
+      stopBGM();
+      currentChart = chart;
+      gameMode     = 'custom';
+      chartType    = chart.chartType || 'piano';
+
+      score = 0; hp = 1000; combo = 0; heldLongNote = null;
+
+      fallingNotes.forEach(n => n.el.remove());
+      fallingNotes = [];
+      grid.forEach(n => n.el.remove());
+      grid = [];
+      clearTimeout(spawnTimerId);
+
+      // マスター一覧を構築（時刻順、fromTimeより前のnoteは出現済み扱いでスキップ）
+      chartNotes = chart.notes
+        .map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0, spawned: n.t < fromTime }))
+        .sort((a, b) => a.t - b.t);
+
+      hudScore.textContent = '0';
+      hudScore.classList.add('music-score');
+      hudCombo.textContent = '0';
+      hudCombo.style.display = 'block';
+      if (chartType === 'music') {
+        hudTimer.textContent = 'HP 1000';
+        hudTimer.style.color = '#f55';
+        hudTimer.classList.remove('warning');
+        hudTimer.style.display = '';
+      } else {
+        hudTimer.style.display = 'none';
+      }
+      document.getElementById('hit-zone').style.display = 'block';
+      document.getElementById('hud-mode').textContent = chart.title || 'CUSTOM';
+
+      const song = SONGS[chart.songId] || SONGS[Object.keys(SONGS)[0]];
+      chartAudio.src = song.file;
+      chartAudio.load();
+
+      setScreen('game');
+      STATE = 'countdown';
+
+      const countEl = document.createElement('div');
+      countEl.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:140px;font-weight:900;color:#fff;z-index:200;pointer-events:none;text-shadow:0 0 24px rgba(0,0,0,0.9);';
+      countEl.textContent = '2';
+      document.body.appendChild(countEl);
+
+      setTimeout(() => { countEl.textContent = '1'; }, 1000);
+      setTimeout(() => {
+        countEl.remove();
+        STATE = 'playing';
+        try { chartAudio.currentTime = fromTime; } catch (e) {}
+        chartAudio.play().catch(console.error);
+        songClockBaseAudio = fromTime;
+        songClockBasePerf  = performance.now() / 1000;
+        chartPrevTime      = fromTime;
+        animFrameId = requestAnimationFrame(chartGameLoop);
+      }, 2000);
+    }
+
     // ===== ピアノタイル開始 =====
     function startPianoGame() {
       audioCtx.resume();
@@ -1162,6 +1380,7 @@
       if (gameMode === 'music') startMusicGame();
       else if (gameMode === 'endless') startEndlessGame();
       else if (gameMode === 'piano') startPianoGame();
+      else if (gameMode === 'custom') startChartGame(currentChart, 0);
       else startGame();
     }
 
@@ -1184,9 +1403,10 @@
       if (lane === undefined) return;
       if (audioCtx.state === 'suspended') audioCtx.resume();
 
-      if (gameMode === 'music' || gameMode === 'piano') {
+      if (gameMode === 'music' || gameMode === 'piano' || gameMode === 'custom') {
         flashLane(lane);
-        if (gameMode === 'piano') handlePianoTap(lane);
+        if (gameMode === 'custom') handleChartTap(lane);
+        else if (gameMode === 'piano') handlePianoTap(lane);
         else handleMusicTap(lane);
         return;
       }
@@ -1258,6 +1478,11 @@
       startPianoGame();
     });
 
+    document.getElementById('btn-mode-charttest').addEventListener('click', () => {
+      nickname = document.getElementById('nickname-input').value.trim();
+      startChartGame(TEST_CHART, 0);
+    });
+
     document.getElementById('btn-retry').addEventListener('click', () => {
       if (gameMode === 'music' || gameMode === 'piano') playBGM();
       restartGame();
@@ -1265,6 +1490,7 @@
 
     document.getElementById('btn-home').addEventListener('click', () => {
       stopBGM();
+      stopChartAudio();
       STATE = 'start';
       setScreen('start');
     });
@@ -1279,8 +1505,8 @@
 
     laneContainer.addEventListener('touchstart', handleInput, { passive: false });
     laneContainer.addEventListener('mousedown', handleInput);
-    laneContainer.addEventListener('touchend',  () => { if (gameMode === 'piano') handlePianoRelease(); }, { passive: false });
-    laneContainer.addEventListener('mouseup',   () => { if (gameMode === 'piano') handlePianoRelease(); });
+    laneContainer.addEventListener('touchend',  () => { if (gameMode === 'piano' || gameMode === 'custom') handlePianoRelease(); }, { passive: false });
+    laneContainer.addEventListener('mouseup',   () => { if (gameMode === 'piano' || gameMode === 'custom') handlePianoRelease(); });
 
     // ===== 初期表示 =====
     setScreen('start');
