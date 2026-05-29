@@ -17,6 +17,12 @@
       100% { opacity: 0; }
     }
 
+    @keyframes scorePop {
+      0%   { transform: scale(1); }
+      35%  { transform: scale(1.35); }
+      100% { transform: scale(1); }
+    }
+
     html, body {
       width: 100%;
       height: 100%;
@@ -165,6 +171,11 @@
       left: 12px;
       font-size: 30px;
       text-align: left;
+      transform-origin: left center;
+    }
+
+    #hud-score.pop {
+      animation: scorePop 0.18s ease-out;
     }
 
     #hud-combo {
@@ -496,6 +507,13 @@
     const hudTimer      = document.getElementById('hud-timer');
     const hudCombo      = document.getElementById('hud-combo');
     let combo = 0;
+
+    // スコア加算時に数字を一瞬拡大させるポップ演出
+    function popScore() {
+      hudScore.classList.remove('pop');
+      void hudScore.offsetWidth;   // アニメーションを毎回再発火させるためリフロー強制
+      hudScore.classList.add('pop');
+    }
     const finalScoreVal = document.getElementById('final-score-value');
     const laneContainer = document.getElementById('lane-container');
     const laneEls       = [0, 1, 2, 3].map(i => document.getElementById('lane-' + i));
@@ -750,6 +768,7 @@
           grid.pop();
           score++;
           hudScore.textContent = score;
+          popScore();
           playTapSound();
           if (!timerStarted) { timerStarted = true; lastTimestamp = null; }
           advanceGrid();
@@ -929,6 +948,7 @@
         combo++;
         hudScore.textContent = score;
         hudCombo.textContent = combo;
+        popScore();
       }
       if (missedLane >= 0) {
         takeDamage(missedLane);
@@ -962,6 +982,7 @@
           } else {
             score += 10000;
             hudScore.textContent = score;
+            popScore();
           }
           combo++;
           hudCombo.textContent = combo;
@@ -1039,6 +1060,7 @@
           fallingNotes.splice(i, 1);
           score += 10000;
           hudScore.textContent = score;
+          popScore();
           combo++;
           hudCombo.textContent = combo;
           playTapSound();
@@ -1176,6 +1198,7 @@
         grid.pop();
         score++;
         hudScore.textContent = score;
+        popScore();
         playTapSound();
         if (!timerStarted) { timerStarted = true; lastTimestamp = null; }
         advanceGrid();
