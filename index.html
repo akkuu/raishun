@@ -228,6 +228,9 @@
       background-image: url("IMG_E2720[1].JPG");
       background-size: cover;
       background-position: center;
+      will-change: transform;
+      backface-visibility: hidden;
+      transform: translateZ(0);
     }
 
     .note-heal {
@@ -516,7 +519,7 @@
     const SPAWN_INTERVALS = [774, 387, 194, 129, 97];
 
     function getSpawnInterval() {
-      const elapsed   = audioCtx.currentTime - musicStartTime;
+      const elapsed   = nowSec() - musicStartTime;
       const progress  = Math.min(elapsed, 120) / 120;
       const speedMult = 1 + elapsed / SPEED_DOUBLE_SECS;
       const weights = [
@@ -541,10 +544,13 @@
     let heldLongNote   = null;
     let pianoPrevTime  = 0;
     let hp             = 1000;
-    let musicStartTime = 0;        // audioCtx.currentTime at game start
+    let musicStartTime = 0;        // nowSec() at game start
+
+    // フレーム単位で滑らかに進む高精度クロック(秒)。requestAnimationFrameと同じ時間軸。
+    const nowSec = () => performance.now() / 1000;
 
     function getFallDuration() {
-      const elapsed   = audioCtx.currentTime - musicStartTime;
+      const elapsed   = nowSec() - musicStartTime;
       const speedMult = 1 + elapsed / SPEED_DOUBLE_SECS;
       return INITIAL_FALL_DURATION / speedMult;
     }
@@ -888,24 +894,25 @@
       const el = document.createElement('div');
       el.className = heal ? 'note note-heal' : trap ? 'note note-trap' : isLong ? 'note note-long' : 'note';
       el.style.height = actualH + 'px';
-      el.style.top    = -actualH + 'px';
+      el.style.top    = '0px';
+      el.style.transform = 'translate3d(0,' + (-actualH) + 'px,0)';
       laneEls[lane].appendChild(el);
-      fallingNotes.push({ lane, el, startTime: audioCtx.currentTime, heal, trap, long: isLong, held: false, activated: false, noteH: actualH });
+      fallingNotes.push({ lane, el, startTime: nowSec(), heal, trap, long: isLong, held: false, activated: false, noteH: actualH });
     }
 
-    function musicGameLoop() {
+    function musicGameLoop(ts) {
       if (STATE !== 'playing') return;
       const screenH    = laneContainer.offsetHeight;
       const fallSpeed  = screenH / getFallDuration();
       const noteH      = Math.floor(screenH * NOTE_H_RATIO);
-      const now        = audioCtx.currentTime;
+      const now        = ts / 1000;
 
       let missedLane = -1;
       let trapAvoided = false;
       for (let i = fallingNotes.length - 1; i >= 0; i--) {
         const note    = fallingNotes[i];
         const noteTop = (now - note.startTime) * fallSpeed - noteH;
-        note.el.style.top = noteTop + 'px';
+        note.el.style.transform = 'translate3d(0,' + noteTop + 'px,0)';
         if (noteTop > screenH) {
           note.el.remove();
           fallingNotes.splice(i, 1);
@@ -936,7 +943,7 @@
       const fallSpeed  = screenH / getFallDuration();
       const noteH      = Math.floor(screenH * NOTE_H_RATIO);
       const hitZoneTop = screenH * (1 - HIT_ZONE_RATIO);
-      const now        = audioCtx.currentTime;
+      const now        = nowSec();
 
       for (let i = 0; i < fallingNotes.length; i++) {
         const note    = fallingNotes[i];
@@ -965,18 +972,18 @@
     }
 
     // ===== ピアノタイルループ =====
-    function pianoGameLoop() {
+    function pianoGameLoop(ts) {
       if (STATE !== 'playing') return;
       const screenH   = laneContainer.offsetHeight;
       const fallSpeed = screenH / getFallDuration();
-      const now       = audioCtx.currentTime;
+      const now       = ts / 1000;
       const delta     = Math.min(now - pianoPrevTime, 0.1);
       pianoPrevTime   = now;
 
       for (let i = fallingNotes.length - 1; i >= 0; i--) {
         const note    = fallingNotes[i];
         const noteTop = (now - note.startTime) * fallSpeed - note.noteH;
-        note.el.style.top = noteTop + 'px';
+        note.el.style.transform = 'translate3d(0,' + noteTop + 'px,0)';
 
         if (note.long) {
           if (note.held) {
@@ -1011,7 +1018,7 @@
       const screenH    = laneContainer.offsetHeight;
       const fallSpeed  = screenH / getFallDuration();
       const hitZoneTop = screenH * (1 - HIT_ZONE_RATIO);
-      const now        = audioCtx.currentTime;
+      const now        = nowSec();
 
       for (let i = 0; i < fallingNotes.length; i++) {
         const note    = fallingNotes[i];
@@ -1079,8 +1086,8 @@
       setTimeout(() => {
         countEl.remove();
         STATE = 'playing';
-        musicStartTime = audioCtx.currentTime;
-        pianoPrevTime  = audioCtx.currentTime;
+        musicStartTime = nowSec();
+        pianoPrevTime  = nowSec();
         scheduleSpawn();
         animFrameId = requestAnimationFrame(pianoGameLoop);
       }, 2000);
@@ -1123,7 +1130,7 @@
       setTimeout(() => {
         countEl.remove();
         STATE = 'playing';
-        musicStartTime = audioCtx.currentTime;
+        musicStartTime = nowSec();
         scheduleSpawn();
         animFrameId = requestAnimationFrame(musicGameLoop);
       }, 2000);
