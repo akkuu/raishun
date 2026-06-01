@@ -700,6 +700,7 @@
     let chartPrevTime  = 0;           // ロング加点用の前フレーム時間
     let chartPlayStart = 0;           // ゲーム開始(カウント後)のperformance.now基準(秒)
     let chartPlayFrom  = 0;           // 再生開始の曲内時刻(秒・テストの途中開始用)
+    let chartFromEditor = false;      // エディタのテストから起動したか（リザルトで戻り先を変える）
     let chartLeadIn    = 1.5;         // noteが降り始めるまでの猶予(秒)。開始時にBPMの1小節分で算出
     function chartTime() { return performance.now() / 1000 - chartPlayStart; }
     const chartAudio   = new Audio(); // 譜面専用オーディオ（bgmAudioとは別）
@@ -826,6 +827,10 @@
         goScreen.style.backgroundImage = 'none';
       }
       setScreen('gameover');
+
+      // テストから来た譜面は戻る先をエディタにする
+      document.getElementById('btn-home').textContent =
+        (gameMode === 'custom' && chartFromEditor) ? '譜面メーカーに戻る' : 'スタート画面へ';
 
       // 譜面モードはランキングを使わず結果のみ表示（MVP）
       if (gameMode === 'custom') {
@@ -1609,6 +1614,7 @@
     document.getElementById('btn-home').addEventListener('click', () => {
       stopBGM();
       stopChartAudio();
+      if (gameMode === 'custom' && chartFromEditor) { openEditor(); return; }
       STATE = 'start';
       setScreen('start');
     });
@@ -1967,6 +1973,7 @@
     document.getElementById('ed-test').addEventListener('click', () => {
       stopEditorPreview();
       cancelLongDrag();
+      chartFromEditor = true;
       startChartGame(buildEditorChart(), 0);
     });
     document.getElementById('ed-save').addEventListener('click', () => {
