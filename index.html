@@ -409,6 +409,7 @@
       background: #222; color: #fff; font-size: 12px; cursor: pointer; text-align: center;
     }
     .ed-pal.active { border-color: #ff69b4; background: #3a2030; }
+    .ed-pal-clear { border-color: #ee4433; color: #ff8877; }
 
     #editor-scroll {
       flex: 1; overflow-y: auto; background: #1a1a1a;
@@ -1717,6 +1718,19 @@
       er.textContent = '消しゴム';
       er.onclick = () => setEditorNoteType('eraser');
       edPalette.appendChild(er);
+
+      const clr = document.createElement('button');
+      clr.className = 'ed-pal ed-pal-clear';
+      clr.textContent = '全削除';
+      clr.onclick = () => {
+        if (editorChart.notes.length === 0) return;
+        if (confirm('作成中の譜面を全部消します。よろしいですか？')) {
+          editorChart.notes = [];
+          editorLongStart = null;
+          renderEditorNotes();
+        }
+      };
+      edPalette.appendChild(clr);
     }
     function setEditorNoteType(t) {
       editorNoteType = t;
