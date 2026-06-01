@@ -445,6 +445,7 @@
     .ed-note-heal   { background: #22cc77; }
     .ed-note-damage { background: #ee4433; }
     .ed-pending { outline: 2px dashed #ffeb3b; opacity: 0.7; }
+    .ed-grabbed { outline: 3px solid #ffeb3b; box-shadow: 0 0 12px #ffeb3b; z-index: 6; }
 
     #editor-side { width: 72px; display: flex; flex-direction: column; gap: 6px; }
     #editor-side button {
@@ -1642,7 +1643,8 @@
     let editorNoteType = 'normal';
     let editorSubdiv   = 4;      // 4 | 8 | 16
     let editorLongStart= null;   // （旧）未使用
-    let edLongDrag     = null;   // ロングをドラッグ中 {lane, startT, endT, lastClientY, raf}
+    let edDrag         = null;   // ドラッグ操作中 {type:'create-long'|'move'|'resize-end', note, lane, startT, endT, grabOffsetT, lastClientX, lastClientY, raf}
+    let edPress        = null;   // 押下〜判定前 {lane, startClientY, y, hit, tailZone, timer, moved}
     let editorPlaying  = false;
     let editorPreviewRAF = null;
     let editorGridH    = 0;      // 現在のグリッド全体の高さ(px)。縦軸は下=時間0, 上=後
@@ -1711,7 +1713,8 @@
       for (const n of editorChart.notes) {
         const el = document.createElement('div');
         el.className = 'ed-note' +
-          (n.type === 'long' ? ' ed-note-long' : n.type === 'heal' ? ' ed-note-heal' : n.type === 'damage' ? ' ed-note-damage' : '');
+          (n.type === 'long' ? ' ed-note-long' : n.type === 'heal' ? ' ed-note-heal' : n.type === 'damage' ? ' ed-note-damage' : '') +
+          (edDrag && edDrag.note === n ? ' ed-grabbed' : '');
         if (n.type === 'long') {
           const dh = Math.max(8, n.dur * EDITOR_PX_PER_SEC);
           el.style.top = (yLine(n.t) - dh) + 'px';   // headが下端、tailが上
@@ -1722,15 +1725,15 @@
         }
         edLanes[n.lane].appendChild(el);
       }
-      if (edLongDrag) {
-        const head = edLongDrag.startT;
-        const dur  = Math.max(edCellSec(), edLongDrag.endT - edLongDrag.startT);
+      if (edDrag && edDrag.type === 'create-long') {
+        const head = edDrag.startT;
+        const dur  = Math.max(edCellSec(), edDrag.endT - edDrag.startT);
         const dh   = Math.max(8, dur * EDITOR_PX_PER_SEC);
         const el = document.createElement('div');
         el.className = 'ed-note ed-note-long ed-pending';
         el.style.top = (yLine(head) - dh) + 'px';
         el.style.height = dh + 'px';
-        edLanes[edLongDrag.lane].appendChild(el);
+        edLanes[edDrag.lane].appendChild(el);
       }
     }
 
@@ -1782,68 +1785,142 @@
       const n = findNoteAt(lane, t);
       if (n) editorChart.notes.splice(editorChart.notes.indexOf(n), 1);
     }
-    function onLaneClick(lane, clientY) {
-      if (editorPlaying || editorNoteType === 'long') return;   // 再生中/ロングはここで扱わない
-      const rect = edGrid.getBoundingClientRect();
-      const t = snapT(tAtY(clientY - rect.top));
+    // 指定レーン・y(グリッド内)にあるnoteを探す。tail=ロングの上端(終端)付近か
+    function hitTestNote(lane, y) {
+      const PAD = 6;
+      for (const n of editorChart.notes) {
+        if (n.lane !== lane) continue;
+        let top, bottom;
+        if (n.type === 'long') { top = yLine(n.t + n.dur); bottom = yLine(n.t); }
+        else { top = yLine(n.t) - EDITOR_NOTE_H; bottom = yLine(n.t); }
+        if (y >= top - PAD && y <= bottom + PAD) {
+          const tail = n.type === 'long' && y <= top + (bottom - top) * 0.35;
+          return { note: n, tail };
+        }
+      }
+      return null;
+    }
 
-      if (editorNoteType === 'eraser') { removeNoteAt(lane, t); renderEditorNotes(); return; }
+    const LONGPRESS_MS = 320;
 
-      // 通常/回復/ダメージ: 同じ場所をタップで配置⇔削除
-      if (findNoteAt(lane, t)) removeNoteAt(lane, t);
-      else editorChart.notes.push({ lane, t, type: editorNoteType });
+    // 既存noteを長押しでつかむ → 移動 or （ロング上端で）伸縮
+    function beginGrab() {
+      if (!edPress) return;
+      const hit = edPress.hit;
+      edScroll.classList.add('ed-noscroll');     // つかみ中はタッチscroll停止
+      if (hit.note.type === 'long' && edPress.tailZone) {
+        edDrag = { type: 'resize-end', note: hit.note, lane: hit.note.lane };
+      } else {
+        const grabT = tAtY(edPress.y);
+        edDrag = { type: 'move', note: hit.note, lane: hit.note.lane, grabOffsetT: hit.note.t - grabT };
+      }
+      edDrag.lastClientX = edPress.lastClientX;
+      edDrag.lastClientY = edPress.startClientY;
+      edPress = null;
+      edDrag.raf = requestAnimationFrame(dragLoop);
       renderEditorNotes();
     }
 
-    // ----- ロング: 押して上にドラッグ→離す。画面端で自動スクロールし無限に伸ばせる -----
-    function edEndTFromPointer() {
-      const y = edLongDrag.lastClientY - edGrid.getBoundingClientRect().top;
-      return snapT(tAtY(y));
+    // ロング新規作成ドラッグを開始
+    function beginCreateLong(lane, y, clientX, clientY) {
+      const t = snapT(tAtY(y));
+      edDrag = { type: 'create-long', lane, startT: t, endT: t, lastClientX: clientX, lastClientY: clientY };
+      edDrag.raf = requestAnimationFrame(dragLoop);
+      renderEditorNotes();
     }
-    function longDragLoop() {
-      if (!edLongDrag) return;
-      const rect = edScroll.getBoundingClientRect();
+
+    // ドラッグ中ループ（端で自動スクロール）
+    function dragLoop() {
+      if (!edDrag) return;
+      const sRect = edScroll.getBoundingClientRect();
       const EDGE = 70, SPEED = 16;
       const maxScroll = Math.max(0, editorGridH - edScroll.clientHeight);
-      if (edLongDrag.lastClientY < rect.top + EDGE)        edScroll.scrollTop = Math.max(0, edScroll.scrollTop - SPEED);
-      else if (edLongDrag.lastClientY > rect.bottom - EDGE) edScroll.scrollTop = Math.min(maxScroll, edScroll.scrollTop + SPEED);
-      edLongDrag.endT = edEndTFromPointer();
+      if (edDrag.lastClientY < sRect.top + EDGE)         edScroll.scrollTop = Math.max(0, edScroll.scrollTop - SPEED);
+      else if (edDrag.lastClientY > sRect.bottom - EDGE) edScroll.scrollTop = Math.min(maxScroll, edScroll.scrollTop + SPEED);
+
+      const gRect = edGrid.getBoundingClientRect();
+      const pointerT = tAtY(edDrag.lastClientY - gRect.top);
+
+      if (edDrag.type === 'create-long') {
+        edDrag.endT = snapT(pointerT);
+      } else if (edDrag.type === 'resize-end') {
+        edDrag.note.dur = Math.max(edCellSec(), snapT(pointerT) - edDrag.note.t);
+      } else if (edDrag.type === 'move') {
+        const laneW = gRect.width / 4;
+        edDrag.note.lane = Math.max(0, Math.min(3, Math.floor((edDrag.lastClientX - gRect.left) / laneW)));
+        edDrag.note.t    = snapT(pointerT + edDrag.grabOffsetT);
+      }
       renderEditorNotes();
-      edLongDrag.raf = requestAnimationFrame(longDragLoop);
+      edDrag.raf = requestAnimationFrame(dragLoop);
     }
-    function onLongPointerDown(lane, e) {
-      if (editorPlaying || editorNoteType !== 'long') return;
-      e.preventDefault();
-      const t = snapT(tAtY(e.clientY - edGrid.getBoundingClientRect().top));
-      edLongDrag = { lane, startT: t, endT: t, lastClientY: e.clientY, raf: 0 };
-      renderEditorNotes();
-      edLongDrag.raf = requestAnimationFrame(longDragLoop);
+
+    function onPadPointerDown(lane, e) {
+      if (editorPlaying) return;
+      const gRect = edGrid.getBoundingClientRect();
+      const y = e.clientY - gRect.top;
+      const hit = hitTestNote(lane, y);
+      edPress = { lane, startClientY: e.clientY, lastClientX: e.clientX, y, hit, tailZone: hit ? hit.tail : false, timer: null, moved: false };
+
+      if (hit) {
+        edPress.timer = setTimeout(beginGrab, LONGPRESS_MS);  // 既存note: 長押しで移動/伸縮
+      } else if (editorNoteType === 'long') {
+        e.preventDefault();                                   // 空白×ロング: すぐ作成ドラッグ
+        edPress = null;
+        beginCreateLong(lane, y, e.clientX, e.clientY);
+      }
     }
-    function onLongPointerMove(e) {
-      if (!edLongDrag) return;
-      e.preventDefault();
-      edLongDrag.lastClientY = e.clientY;
+    function onPadPointerMove(e) {
+      if (edDrag) {
+        e.preventDefault();
+        edDrag.lastClientX = e.clientX;
+        edDrag.lastClientY = e.clientY;
+      } else if (edPress) {
+        edPress.lastClientX = e.clientX;
+        if (Math.abs(e.clientY - edPress.startClientY) > 8) {
+          edPress.moved = true;                 // スクロール等 → 長押しキャンセル
+          clearTimeout(edPress.timer);
+        }
+      }
     }
-    function onLongPointerUp() {
-      if (!edLongDrag) return;
-      if (edLongDrag.raf) cancelAnimationFrame(edLongDrag.raf);
-      edLongDrag.endT = edEndTFromPointer();
-      const dur = Math.max(edCellSec(), edLongDrag.endT - edLongDrag.startT);
-      editorChart.notes.push({ lane: edLongDrag.lane, t: edLongDrag.startT, type: 'long', dur });
-      edLongDrag = null;
+    function onPadPointerUp() {
+      if (edDrag) { finishDrag(); return; }
+      if (!edPress) return;
+      clearTimeout(edPress.timer);
+      if (!edPress.moved) {                      // クイックタップ
+        const t = snapT(tAtY(edPress.y));
+        if (editorNoteType === 'eraser') {
+          if (edPress.hit) { editorChart.notes.splice(editorChart.notes.indexOf(edPress.hit.note), 1); renderEditorNotes(); }
+        } else if (editorNoteType === 'long') {
+          if (!edPress.hit) { editorChart.notes.push({ lane: edPress.lane, t, type: 'long', dur: edCellSec() }); renderEditorNotes(); }
+        } else {
+          if (edPress.hit) editorChart.notes.splice(editorChart.notes.indexOf(edPress.hit.note), 1);  // 配置⇔削除
+          else editorChart.notes.push({ lane: edPress.lane, t, type: editorNoteType });
+          renderEditorNotes();
+        }
+      }
+      edPress = null;
+    }
+    function finishDrag() {
+      if (edDrag.raf) cancelAnimationFrame(edDrag.raf);
+      if (edDrag.type === 'create-long') {
+        const dur = Math.max(edCellSec(), edDrag.endT - edDrag.startT);
+        editorChart.notes.push({ lane: edDrag.lane, t: edDrag.startT, type: 'long', dur });
+      }
+      edDrag = null;
+      edScroll.classList.toggle('ed-noscroll', editorNoteType === 'long');  // ロング時のみnoscroll維持
       renderEditorNotes();
     }
     function cancelLongDrag() {
-      if (edLongDrag && edLongDrag.raf) cancelAnimationFrame(edLongDrag.raf);
-      edLongDrag = null;
+      if (edDrag && edDrag.raf) cancelAnimationFrame(edDrag.raf);
+      if (edPress) clearTimeout(edPress.timer);
+      edDrag = null;
+      edPress = null;
     }
 
-    edLanes.forEach((l, i) => {
-      l.addEventListener('click', e => onLaneClick(i, e.clientY));
-      l.addEventListener('pointerdown', e => onLongPointerDown(i, e));
-    });
-    document.addEventListener('pointermove', onLongPointerMove, { passive: false });
-    document.addEventListener('pointerup', onLongPointerUp);
+    edLanes.forEach((l, i) => l.addEventListener('pointerdown', e => onPadPointerDown(i, e)));
+    document.addEventListener('pointermove', onPadPointerMove, { passive: false });
+    document.addEventListener('pointerup', onPadPointerUp);
+    document.addEventListener('pointercancel', () => { if (edDrag) finishDrag(); else if (edPress) { clearTimeout(edPress.timer); edPress = null; } });
 
     // ----- メタ情報をコントロールから同期 -----
     function syncEditorMeta() {
