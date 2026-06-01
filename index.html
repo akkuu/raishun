@@ -426,6 +426,16 @@
       position: absolute; left: 0; right: 0; height: 2px; background: #ff69b4;
       z-index: 5; pointer-events: none; top: 0;
     }
+    #editor-startline {
+      position: absolute; left: 0; right: 0; height: 0;
+      border-top: 4px solid #ffeb3b; z-index: 4; pointer-events: none; top: 0;
+    }
+    #editor-startline::after {
+      content: 'スタート ▼';
+      position: absolute; right: 4px; top: -17px;
+      font-size: 11px; font-weight: 700; color: #111;
+      background: #ffeb3b; padding: 1px 6px; border-radius: 4px;
+    }
     .ed-note {
       position: absolute; left: 3px; right: 3px; z-index: 3;
       border-radius: 4px; background: #4aa3ff; border: 1px solid #cfe6ff; box-sizing: border-box;
@@ -523,6 +533,7 @@
           <div class="ed-lane" id="ed-lane-2"></div>
           <div class="ed-lane" id="ed-lane-3"></div>
           <div id="editor-nowline"></div>
+          <div id="editor-startline"></div>
         </div>
       </div>
       <div id="editor-side">
@@ -685,7 +696,11 @@
     let currentChart   = null;        // 再生中の譜面オブジェクト
     let chartType      = 'piano';     // 'music' | 'piano'（ルール種別）
     let chartNotes     = [];          // マスターnote一覧（.spawnedフラグ付き）
-    let chartPrevTime  = 0;           // ロング加点用の前フレーム曲時間
+    let chartPrevTime  = 0;           // ロング加点用の前フレーム時間
+    let chartPlayStart = 0;           // ゲーム開始(カウント後)のperformance.now基準(秒)
+    let chartPlayFrom  = 0;           // 再生開始の曲内時刻(秒・テストの途中開始用)
+    let chartLeadIn    = 1.5;         // noteが降り始めるまでの猶予(秒)。開始時にBPMの1小節分で算出
+    function chartTime() { return performance.now() / 1000 - chartPlayStart; }
     const chartAudio   = new Audio(); // 譜面専用オーディオ（bgmAudioとは別）
     chartAudio.loop    = false;
     // audio.currentTimeは粗く更新されるため、performance.nowで補間して滑らかな曲時間を得る
@@ -1226,14 +1241,15 @@
       const fallDur   = currentChart.noteSpeed || 0.6;   // 一定（加速なし）
       const fallSpeed = screenH / fallDur;
       const baseNoteH = Math.floor(screenH * NOTE_H_RATIO);
-      const songTime  = getSongTime();
+      const songTime  = chartTime();   // ゲーム開始からの経過(秒)。chartLeadIn後にnoteが到達
       const delta     = Math.min(songTime - chartPrevTime, 0.1);
       chartPrevTime   = songTime;
 
-      // 出現時刻になったnoteをスポーン（t - fallDur で画面上端から落とし始め、tで最下部に到達）
+      // note到達時刻 = (t - 開始時刻) + リードイン。落ち始めはそこから fallDur 前
       for (const cn of chartNotes) {
         if (cn.spawned) continue;
-        if (cn.t - fallDur <= songTime) {
+        const noteStart = (cn.t - chartPlayFrom) + chartLeadIn - fallDur;
+        if (noteStart <= songTime) {
           cn.spawned = true;
           const isLong = cn.type === 'long';
           const noteH  = isLong ? baseNoteH + cn.dur * fallSpeed : baseNoteH;
@@ -1244,7 +1260,7 @@
           el.style.height = noteH + 'px';
           el.style.top    = '0px';
           laneEls[cn.lane].appendChild(el);
-          fallingNotes.push({ lane: cn.lane, el, noteStart: cn.t - fallDur, t: cn.t,
+          fallingNotes.push({ lane: cn.lane, el, noteStart, t: cn.t,
             type: cn.type, dur: cn.dur || 0, noteH, long: isLong, held: false, activated: false });
         }
       }
@@ -1292,7 +1308,7 @@
       const fallDur    = currentChart.noteSpeed || 0.6;
       const fallSpeed  = screenH / fallDur;
       const hitZoneTop = screenH * (1 - HIT_ZONE_RATIO);
-      const songTime   = getSongTime();
+      const songTime   = chartTime();
 
       for (let i = 0; i < fallingNotes.length; i++) {
         const note    = fallingNotes[i];
@@ -1340,6 +1356,8 @@
       grid = [];
       clearTimeout(spawnTimerId);
 
+      chartPlayFrom = fromTime;
+      chartLeadIn   = 4 * 60 / (chart.bpm || 120);   // BPMの1小節分(4拍)
       // マスター一覧を構築（時刻順、fromTimeより前のnoteは出現済み扱いでスキップ）
       chartNotes = chart.notes
         .map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0, spawned: n.t < fromTime }))
@@ -1376,12 +1394,15 @@
       setTimeout(() => {
         countEl.remove();
         STATE = 'playing';
-        try { chartAudio.currentTime = fromTime; } catch (e) {}
-        chartAudio.play().catch(console.error);
-        songClockBaseAudio = fromTime;
-        songClockBasePerf  = performance.now() / 1000;
-        chartPrevTime      = fromTime;
+        chartPlayStart = performance.now() / 1000;   // ここからの経過がchartTime()
+        chartPrevTime  = 0;
         animFrameId = requestAnimationFrame(chartGameLoop);
+        // リードインぶん待ってから曲を再生（noteの到達と曲を一致させる）
+        setTimeout(() => {
+          if (STATE !== 'playing' || gameMode !== 'custom') return;
+          try { chartAudio.currentTime = fromTime; } catch (e) {}
+          chartAudio.play().catch(console.error);
+        }, chartLeadIn * 1000);
       }, 2000);
     }
 
@@ -1627,6 +1648,7 @@
     const edGrid    = document.getElementById('editor-grid');
     const edLines   = document.getElementById('editor-lines');
     const edNowline = document.getElementById('editor-nowline');
+    const edStartline = document.getElementById('editor-startline');
     const edPalette = document.getElementById('editor-palette');
     const edPlay    = document.getElementById('ed-play');
     const edLanes   = [0,1,2,3].map(i => document.getElementById('ed-lane-' + i));
@@ -1657,6 +1679,7 @@
       const h = Math.max(edScroll.clientHeight, songDuration() * EDITOR_PX_PER_SEC);
       editorGridH = h;
       edGrid.style.height = h + 'px';
+      edStartline.style.top = (yLine(0) - 4) + 'px';   // 一番下=時間0=スタート(判定)位置
       // 拍線
       edLines.innerHTML = '';
       const cell = edCellSec(), off = editorChart.offset;
