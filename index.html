@@ -1615,6 +1615,7 @@
     let editorLongStart= null;   // ロング配置の始点 {lane, t}
     let editorPlaying  = false;
     let editorPreviewRAF = null;
+    let editorGridH    = 0;      // 現在のグリッド全体の高さ(px)。縦軸は下=時間0, 上=後
 
     // DOM参照
     const edSong    = document.getElementById('ed-song');
@@ -1639,8 +1640,9 @@
     // ----- 時間↔ピクセル / スナップ -----
     function edBeat()    { return 60 / editorChart.bpm; }
     function edCellSec() { return edBeat() * 4 / editorSubdiv; }
-    function tToY(t)     { return t * EDITOR_PX_PER_SEC; }
-    function yToT(y)     { return y / EDITOR_PX_PER_SEC; }
+    // 縦軸は反転: 時間0=一番下、時間が進むほど上（落下と同じ向き）
+    function yLine(t)    { return editorGridH - t * EDITOR_PX_PER_SEC; }
+    function tAtY(y)     { return (editorGridH - y) / EDITOR_PX_PER_SEC; }
     function snapT(t) {
       const c = edCellSec(), off = editorChart.offset;
       return Math.max(0, Math.round((t - off) / c) * c + off);
@@ -1652,6 +1654,7 @@
     // ----- グリッド寸法と拍線の再描画 -----
     function layoutEditorGrid() {
       const h = Math.max(edScroll.clientHeight, songDuration() * EDITOR_PX_PER_SEC);
+      editorGridH = h;
       edGrid.style.height = h + 'px';
       // 拍線
       edLines.innerHTML = '';
@@ -1659,12 +1662,12 @@
       const cellsPerBeat    = editorSubdiv / 4;      // 4→1, 8→2, 16→4
       const cellsPerMeasure = editorSubdiv;          // 4拍ぶん
       let r = 0;
-      for (let t = off; tToY(t) <= h; t = off + (++r) * cell) {
-        if (tToY(t) < 0) continue;
+      for (let t = off; t * EDITOR_PX_PER_SEC <= h; t = off + (++r) * cell) {
+        if (t < 0) continue;
         const line = document.createElement('div');
         line.className = 'ed-beatline' +
           (r % cellsPerMeasure === 0 ? ' measure' : r % cellsPerBeat === 0 ? ' beat' : '');
-        line.style.top = tToY(t) + 'px';
+        line.style.top = yLine(t) + 'px';
         edLines.appendChild(line);
       }
       renderEditorNotes();
@@ -1677,14 +1680,20 @@
         const el = document.createElement('div');
         el.className = 'ed-note' +
           (n.type === 'long' ? ' ed-note-long' : n.type === 'heal' ? ' ed-note-heal' : n.type === 'damage' ? ' ed-note-damage' : '');
-        el.style.top = tToY(n.t) + 'px';
-        el.style.height = (n.type === 'long' ? Math.max(8, n.dur * EDITOR_PX_PER_SEC) : EDITOR_NOTE_H) + 'px';
+        if (n.type === 'long') {
+          const dh = Math.max(8, n.dur * EDITOR_PX_PER_SEC);
+          el.style.top = (yLine(n.t) - dh) + 'px';   // headが下端、tailが上
+          el.style.height = dh + 'px';
+        } else {
+          el.style.top = (yLine(n.t) - EDITOR_NOTE_H) + 'px';
+          el.style.height = EDITOR_NOTE_H + 'px';
+        }
         edLanes[n.lane].appendChild(el);
       }
       if (editorLongStart) {
         const el = document.createElement('div');
         el.className = 'ed-note ed-note-long ed-pending';
-        el.style.top = tToY(editorLongStart.t) + 'px';
+        el.style.top = (yLine(editorLongStart.t) - EDITOR_NOTE_H) + 'px';
         el.style.height = EDITOR_NOTE_H + 'px';
         edLanes[editorLongStart.lane].appendChild(el);
       }
@@ -1727,7 +1736,7 @@
     function onLaneClick(lane, clientY) {
       if (editorPlaying) return;   // 再生中は配置しない
       const rect = edGrid.getBoundingClientRect();
-      const t = snapT(yToT(clientY - rect.top));
+      const t = snapT(tAtY(clientY - rect.top));
 
       if (editorNoteType === 'eraser') { removeNoteAt(lane, t); renderEditorNotes(); return; }
 
@@ -1758,12 +1767,17 @@
       editorChart.offset    = parseFloat(edOffset.value) || 0;
     }
 
+    // 一番下（時間0）が見えるようスクロール
+    function scrollEditorToStart() {
+      edScroll.scrollTop = Math.max(0, editorGridH - edScroll.clientHeight);
+    }
+
     // ----- 曲読み込み -----
     function loadEditorSong() {
       const song = SONGS[editorChart.songId] || SONGS[Object.keys(SONGS)[0]];
       chartAudio.src = song.file;
       chartAudio.load();
-      chartAudio.onloadedmetadata = () => layoutEditorGrid();
+      chartAudio.onloadedmetadata = () => { layoutEditorGrid(); if (!editorPlaying) scrollEditorToStart(); };
       layoutEditorGrid();
     }
 
@@ -1783,13 +1797,15 @@
       rebuildPalette();
       loadEditorSong();
       setScreen('editor');
+      layoutEditorGrid();      // 表示後に実際の高さで再計算
+      scrollEditorToStart();
     }
 
     // ----- プレビュー再生（叩かず流すだけ・グリッド同期スクロール）-----
     function toggleEditorPreview() {
       if (editorPlaying) { stopEditorPreview(); return; }
       audioCtx.resume();
-      const startT = yToT(edScroll.scrollTop);
+      const startT = Math.max(0, Math.min(songDuration(), tAtY(edScroll.scrollTop + edScroll.clientHeight * 0.5)));
       const song = SONGS[editorChart.songId];
       if (chartAudio.src.indexOf(song.file) === -1) { chartAudio.src = song.file; chartAudio.load(); }
       try { chartAudio.currentTime = startT; } catch (e) {}
@@ -1804,8 +1820,8 @@
     function editorPreviewLoop() {
       if (!editorPlaying) return;
       const st = getSongTime();
-      edNowline.style.top = tToY(st) + 'px';
-      edScroll.scrollTop = tToY(st) - edScroll.clientHeight * 0.5;
+      edNowline.style.top = yLine(st) + 'px';
+      edScroll.scrollTop = yLine(st) - edScroll.clientHeight * 0.5;
       if (chartAudio.ended || st >= songDuration()) { stopEditorPreview(); return; }
       editorPreviewRAF = requestAnimationFrame(editorPreviewLoop);
     }
