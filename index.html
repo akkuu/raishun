@@ -706,7 +706,12 @@
     let chartPlayFrom  = 0;           // 再生開始の曲内時刻(秒・テストの途中開始用)
     let chartFromEditor = false;      // エディタのテストから起動したか（リザルトで戻り先を変える）
     let chartLeadIn    = 1.5;         // noteが降り始めるまでの猶予(秒)。開始時にBPMの1小節分で算出
-    function chartTime() { return performance.now() / 1000 - chartPlayStart; }
+    let chartAudioStarted = false;    // 音楽が実際に鳴り始めたか（鳴ったらノーツを音楽に同期）
+    // ゲーム内経過時間(秒)。音楽再生後は音楽の再生位置に同期させて音ハメを保証する
+    function chartTime() {
+      if (chartAudioStarted) return chartLeadIn + (getSongTime() - chartPlayFrom);
+      return performance.now() / 1000 - chartPlayStart;   // リードイン中(音楽が鳴る前)
+    }
     const chartAudio   = new Audio(); // 譜面専用オーディオ（bgmAudioとは別）
     chartAudio.loop    = false;
     // audio.currentTimeは粗く更新されるため、performance.nowで補間して滑らかな曲時間を得る
@@ -1404,14 +1409,17 @@
       setTimeout(() => {
         countEl.remove();
         STATE = 'playing';
-        chartPlayStart = performance.now() / 1000;   // ここからの経過がchartTime()
-        chartPrevTime  = 0;
+        chartPlayStart   = performance.now() / 1000;   // リードイン中の時計の基準
+        chartPrevTime    = 0;
+        chartAudioStarted = false;
         animFrameId = requestAnimationFrame(chartGameLoop);
-        // リードインぶん待ってから曲を再生（noteの到達と曲を一致させる）
+        // リードインぶん待ってから曲を再生。鳴り始めたらノーツを音楽に同期
         setTimeout(() => {
           if (STATE !== 'playing' || gameMode !== 'custom') return;
           try { chartAudio.currentTime = fromTime; } catch (e) {}
-          chartAudio.play().catch(console.error);
+          songClockBaseAudio = fromTime;
+          songClockBasePerf  = performance.now() / 1000;
+          chartAudio.play().then(() => { chartAudioStarted = true; }).catch(console.error);
         }, chartLeadIn * 1000);
       }, 2000);
     }
