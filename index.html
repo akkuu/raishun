@@ -453,6 +453,7 @@
       background: #333; color: #fff; font-size: 12px; cursor: pointer;
     }
     #ed-play.playing { background: #ff69b4; color: #111; }
+    #editor-side button:disabled { opacity: 0.35; }
   </style>
 </head>
 <body>
@@ -539,6 +540,8 @@
         </div>
       </div>
       <div id="editor-side">
+        <button id="ed-undo">↶戻す</button>
+        <button id="ed-redo">↷進む</button>
         <button id="ed-play">▶</button>
         <button id="ed-test">テスト</button>
         <button id="ed-save">保存</button>
@@ -1645,6 +1648,8 @@
     let editorLongStart= null;   // （旧）未使用
     let edDrag         = null;   // ドラッグ操作中 {type:'create-long'|'move'|'resize-end', note, lane, startT, endT, grabOffsetT, lastClientX, lastClientY, raf}
     let edPress        = null;   // 押下〜判定前 {lane, startClientY, y, hit, tailZone, timer, moved}
+    let edHistory      = [];     // 編集履歴(notesのJSONスナップショット)
+    let edHistoryIdx   = -1;     // 現在位置
     let editorPlaying  = false;
     let editorPreviewRAF = null;
     let editorGridH    = 0;      // 現在のグリッド全体の高さ(px)。縦軸は下=時間0, 上=後
@@ -1661,6 +1666,8 @@
     const edStartline = document.getElementById('editor-startline');
     const edPalette = document.getElementById('editor-palette');
     const edPlay    = document.getElementById('ed-play');
+    const edUndoBtn = document.getElementById('ed-undo');
+    const edRedoBtn = document.getElementById('ed-redo');
     const edLanes   = [0,1,2,3].map(i => document.getElementById('ed-lane-' + i));
 
     // 曲選択の選択肢を生成
@@ -1737,6 +1744,30 @@
       }
     }
 
+    // ----- 編集履歴（戻す/進む）-----
+    function pushHistory() {
+      edHistory = edHistory.slice(0, edHistoryIdx + 1);
+      edHistory.push(JSON.stringify(editorChart.notes));
+      edHistoryIdx = edHistory.length - 1;
+      updateUndoRedo();
+    }
+    function resetHistory() {
+      edHistory = [JSON.stringify(editorChart.notes)];
+      edHistoryIdx = 0;
+      updateUndoRedo();
+    }
+    function applyHistory() {
+      editorChart.notes = JSON.parse(edHistory[edHistoryIdx]);
+      renderEditorNotes();
+      updateUndoRedo();
+    }
+    function edUndo() { if (edHistoryIdx > 0) { edHistoryIdx--; applyHistory(); } }
+    function edRedo() { if (edHistoryIdx < edHistory.length - 1) { edHistoryIdx++; applyHistory(); } }
+    function updateUndoRedo() {
+      edUndoBtn.disabled = edHistoryIdx <= 0;
+      edRedoBtn.disabled = edHistoryIdx >= edHistory.length - 1;
+    }
+
     // ----- パレット -----
     function rebuildPalette() {
       const types = editorChart.chartType === 'music'
@@ -1765,6 +1796,7 @@
           editorChart.notes = [];
           cancelLongDrag();
           renderEditorNotes();
+          pushHistory();
         }
       };
       edPalette.appendChild(clr);
@@ -1888,15 +1920,17 @@
       clearTimeout(edPress.timer);
       if (!edPress.moved) {                      // クイックタップ
         const t = snapT(tAtY(edPress.y));
+        let changed = false;
         if (editorNoteType === 'eraser') {
-          if (edPress.hit) { editorChart.notes.splice(editorChart.notes.indexOf(edPress.hit.note), 1); renderEditorNotes(); }
+          if (edPress.hit) { editorChart.notes.splice(editorChart.notes.indexOf(edPress.hit.note), 1); changed = true; }
         } else if (editorNoteType === 'long') {
-          if (!edPress.hit) { editorChart.notes.push({ lane: edPress.lane, t, type: 'long', dur: edCellSec() }); renderEditorNotes(); }
+          if (!edPress.hit) { editorChart.notes.push({ lane: edPress.lane, t, type: 'long', dur: edCellSec() }); changed = true; }
         } else {
           if (edPress.hit) editorChart.notes.splice(editorChart.notes.indexOf(edPress.hit.note), 1);  // 配置⇔削除
           else editorChart.notes.push({ lane: edPress.lane, t, type: editorNoteType });
-          renderEditorNotes();
+          changed = true;
         }
+        if (changed) { renderEditorNotes(); pushHistory(); }
       }
       edPress = null;
     }
@@ -1909,6 +1943,7 @@
       edDrag = null;
       edScroll.classList.toggle('ed-noscroll', editorNoteType === 'long');  // ロング時のみnoscroll維持
       renderEditorNotes();
+      pushHistory();
     }
     function cancelLongDrag() {
       if (edDrag && edDrag.raf) cancelAnimationFrame(edDrag.raf);
@@ -1962,6 +1997,7 @@
       setScreen('editor');
       layoutEditorGrid();      // 表示後に実際の高さで再計算
       scrollEditorToStart();
+      resetHistory();
     }
 
     // ----- プレビュー再生（叩かず流すだけ・グリッド同期スクロール）-----
@@ -2046,6 +2082,8 @@
         layoutEditorGrid();
       });
     });
+    edUndoBtn.addEventListener('click', edUndo);
+    edRedoBtn.addEventListener('click', edRedo);
     edPlay.addEventListener('click', toggleEditorPreview);
     document.getElementById('ed-test').addEventListener('click', () => {
       stopEditorPreview();
