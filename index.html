@@ -415,6 +415,7 @@
       flex: 1; overflow-y: auto; background: #1a1a1a;
       border: 1px solid #444; position: relative; min-width: 0;
     }
+    #editor-scroll.ed-noscroll { touch-action: none; }
     #editor-grid { position: relative; display: flex; width: 100%; }
     .ed-lane { flex: 1; position: relative; border-right: 1px solid #333; }
     .ed-lane:last-child { border-right: none; }
@@ -1634,7 +1635,8 @@
     let editorChart    = null;   // {title, songId, chartType, bpm, offset, noteSpeed, notes:[]}
     let editorNoteType = 'normal';
     let editorSubdiv   = 4;      // 4 | 8 | 16
-    let editorLongStart= null;   // ロング配置の始点 {lane, t}
+    let editorLongStart= null;   // （旧）未使用
+    let edLongDrag     = null;   // ロングをドラッグ中 {lane, startT, endT, lastClientY, raf}
     let editorPlaying  = false;
     let editorPreviewRAF = null;
     let editorGridH    = 0;      // 現在のグリッド全体の高さ(px)。縦軸は下=時間0, 上=後
@@ -1714,12 +1716,15 @@
         }
         edLanes[n.lane].appendChild(el);
       }
-      if (editorLongStart) {
+      if (edLongDrag) {
+        const head = edLongDrag.startT;
+        const dur  = Math.max(edCellSec(), edLongDrag.endT - edLongDrag.startT);
+        const dh   = Math.max(8, dur * EDITOR_PX_PER_SEC);
         const el = document.createElement('div');
         el.className = 'ed-note ed-note-long ed-pending';
-        el.style.top = (yLine(editorLongStart.t) - EDITOR_NOTE_H) + 'px';
-        el.style.height = EDITOR_NOTE_H + 'px';
-        edLanes[editorLongStart.lane].appendChild(el);
+        el.style.top = (yLine(head) - dh) + 'px';
+        el.style.height = dh + 'px';
+        edLanes[edLongDrag.lane].appendChild(el);
       }
     }
 
@@ -1749,7 +1754,7 @@
         if (editorChart.notes.length === 0) return;
         if (confirm('作成中の譜面を全部消します。よろしいですか？')) {
           editorChart.notes = [];
-          editorLongStart = null;
+          cancelLongDrag();
           renderEditorNotes();
         }
       };
@@ -1757,7 +1762,8 @@
     }
     function setEditorNoteType(t) {
       editorNoteType = t;
-      editorLongStart = null;
+      cancelLongDrag();
+      edScroll.classList.toggle('ed-noscroll', t === 'long');  // ロング中はタッチscroll停止(自前scroll)
       rebuildPalette();
       renderEditorNotes();
     }
@@ -1771,30 +1777,67 @@
       if (n) editorChart.notes.splice(editorChart.notes.indexOf(n), 1);
     }
     function onLaneClick(lane, clientY) {
-      if (editorPlaying) return;   // 再生中は配置しない
+      if (editorPlaying || editorNoteType === 'long') return;   // 再生中/ロングはここで扱わない
       const rect = edGrid.getBoundingClientRect();
       const t = snapT(tAtY(clientY - rect.top));
 
       if (editorNoteType === 'eraser') { removeNoteAt(lane, t); renderEditorNotes(); return; }
-
-      if (editorNoteType === 'long') {
-        if (!editorLongStart) { editorLongStart = { lane, t }; renderEditorNotes(); return; }
-        if (editorLongStart.lane === lane && t > editorLongStart.t) {
-          editorChart.notes.push({ lane, t: editorLongStart.t, type: 'long', dur: t - editorLongStart.t });
-          editorLongStart = null;
-        } else {
-          editorLongStart = { lane, t };   // やり直し
-        }
-        renderEditorNotes();
-        return;
-      }
 
       // 通常/回復/ダメージ: 同じ場所をタップで配置⇔削除
       if (findNoteAt(lane, t)) removeNoteAt(lane, t);
       else editorChart.notes.push({ lane, t, type: editorNoteType });
       renderEditorNotes();
     }
-    edLanes.forEach((l, i) => l.addEventListener('click', e => onLaneClick(i, e.clientY)));
+
+    // ----- ロング: 押して上にドラッグ→離す。画面端で自動スクロールし無限に伸ばせる -----
+    function edEndTFromPointer() {
+      const y = edLongDrag.lastClientY - edGrid.getBoundingClientRect().top;
+      return snapT(tAtY(y));
+    }
+    function longDragLoop() {
+      if (!edLongDrag) return;
+      const rect = edScroll.getBoundingClientRect();
+      const EDGE = 70, SPEED = 16;
+      const maxScroll = Math.max(0, editorGridH - edScroll.clientHeight);
+      if (edLongDrag.lastClientY < rect.top + EDGE)        edScroll.scrollTop = Math.max(0, edScroll.scrollTop - SPEED);
+      else if (edLongDrag.lastClientY > rect.bottom - EDGE) edScroll.scrollTop = Math.min(maxScroll, edScroll.scrollTop + SPEED);
+      edLongDrag.endT = edEndTFromPointer();
+      renderEditorNotes();
+      edLongDrag.raf = requestAnimationFrame(longDragLoop);
+    }
+    function onLongPointerDown(lane, e) {
+      if (editorPlaying || editorNoteType !== 'long') return;
+      e.preventDefault();
+      const t = snapT(tAtY(e.clientY - edGrid.getBoundingClientRect().top));
+      edLongDrag = { lane, startT: t, endT: t, lastClientY: e.clientY, raf: 0 };
+      renderEditorNotes();
+      edLongDrag.raf = requestAnimationFrame(longDragLoop);
+    }
+    function onLongPointerMove(e) {
+      if (!edLongDrag) return;
+      e.preventDefault();
+      edLongDrag.lastClientY = e.clientY;
+    }
+    function onLongPointerUp() {
+      if (!edLongDrag) return;
+      if (edLongDrag.raf) cancelAnimationFrame(edLongDrag.raf);
+      edLongDrag.endT = edEndTFromPointer();
+      const dur = Math.max(edCellSec(), edLongDrag.endT - edLongDrag.startT);
+      editorChart.notes.push({ lane: edLongDrag.lane, t: edLongDrag.startT, type: 'long', dur });
+      edLongDrag = null;
+      renderEditorNotes();
+    }
+    function cancelLongDrag() {
+      if (edLongDrag && edLongDrag.raf) cancelAnimationFrame(edLongDrag.raf);
+      edLongDrag = null;
+    }
+
+    edLanes.forEach((l, i) => {
+      l.addEventListener('click', e => onLaneClick(i, e.clientY));
+      l.addEventListener('pointerdown', e => onLongPointerDown(i, e));
+    });
+    document.addEventListener('pointermove', onLongPointerMove, { passive: false });
+    document.addEventListener('pointerup', onLongPointerUp);
 
     // ----- メタ情報をコントロールから同期 -----
     function syncEditorMeta() {
@@ -1841,6 +1884,7 @@
     // ----- プレビュー再生（叩かず流すだけ・グリッド同期スクロール）-----
     function toggleEditorPreview() {
       if (editorPlaying) { stopEditorPreview(); return; }
+      cancelLongDrag();
       audioCtx.resume();
       const startT = Math.max(0, Math.min(songDuration(), tAtY(edScroll.scrollTop + edScroll.clientHeight * 0.5)));
       const song = SONGS[editorChart.songId];
@@ -1922,6 +1966,7 @@
     edPlay.addEventListener('click', toggleEditorPreview);
     document.getElementById('ed-test').addEventListener('click', () => {
       stopEditorPreview();
+      cancelLongDrag();
       startChartGame(buildEditorChart(), 0);
     });
     document.getElementById('ed-save').addEventListener('click', () => {
@@ -1929,6 +1974,7 @@
     });
     document.getElementById('ed-back').addEventListener('click', () => {
       stopEditorPreview();
+      cancelLongDrag();
       STATE = 'start';
       setScreen('start');
     });
