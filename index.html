@@ -398,6 +398,8 @@
       border: 1px solid #888; background: #333; color: #fff; cursor: pointer;
     }
     .ed-subdiv.active { background: #fff; color: #111; }
+    .ed-width.active  { background: #ff69b4; color: #111; }
+    #lane-container.lc8 .lane { border-right: none; }
 
     #editor-main { flex: 1; display: flex; gap: 6px; min-height: 0; }
 
@@ -417,8 +419,10 @@
     }
     #editor-scroll.ed-noscroll { touch-action: none; }
     #editor-grid { position: relative; display: flex; width: 100%; }
-    .ed-lane { flex: 1; position: relative; border-right: 1px solid #333; }
-    .ed-lane:last-child { border-right: none; }
+    .ed-lane { flex: 1; position: relative; }
+    .ed-bd-dark  { border-right: 1px solid #888; }    /* 元の4レーン境界(濃い) */
+    .ed-bd-light { border-right: 1px solid #2f2f2f; }  /* 追加した境界(薄い) */
+    #editor-notes { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
     #editor-lines { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
     .ed-beatline { position: absolute; left: 0; right: 0; height: 1px; background: #2c2c2c; }
     .ed-beatline.beat    { background: #4a4a4a; }
@@ -438,7 +442,7 @@
       background: #ffeb3b; padding: 1px 6px; border-radius: 4px;
     }
     .ed-note {
-      position: absolute; left: 3px; right: 3px; z-index: 3;
+      position: absolute; z-index: 3;
       border-radius: 4px; background: #4aa3ff; border: 1px solid #cfe6ff; box-sizing: border-box;
     }
     .ed-note-long   { background: linear-gradient(to bottom, #88aaff, #2244cc); }
@@ -563,16 +567,26 @@
       <button class="ed-subdiv active" data-subdiv="4">4分</button>
       <button class="ed-subdiv" data-subdiv="8">8分</button>
       <button class="ed-subdiv" data-subdiv="16">16分</button>
+      <span>幅</span>
+      <button class="ed-width active" data-width="1">1</button>
+      <button class="ed-width" data-width="2">2</button>
+      <button class="ed-width" data-width="3">3</button>
+      <button class="ed-width" data-width="4">4</button>
     </div>
     <div id="editor-main">
       <div id="editor-palette"></div>
       <div id="editor-scroll">
         <div id="editor-grid">
           <div id="editor-lines"></div>
-          <div class="ed-lane" id="ed-lane-0"></div>
-          <div class="ed-lane" id="ed-lane-1"></div>
-          <div class="ed-lane" id="ed-lane-2"></div>
-          <div class="ed-lane" id="ed-lane-3"></div>
+          <div class="ed-lane ed-bd-light"></div>
+          <div class="ed-lane ed-bd-dark"></div>
+          <div class="ed-lane ed-bd-light"></div>
+          <div class="ed-lane ed-bd-dark"></div>
+          <div class="ed-lane ed-bd-light"></div>
+          <div class="ed-lane ed-bd-dark"></div>
+          <div class="ed-lane ed-bd-light"></div>
+          <div class="ed-lane"></div>
+          <div id="editor-notes"></div>
           <div id="editor-nowline"></div>
           <div id="editor-startline"></div>
         </div>
@@ -916,6 +930,7 @@
       hudTimer.style.color = '';
       hudCombo.style.display = 'none';
       hudScore.classList.remove('music-score');
+      laneContainer.classList.remove('lc8');
       document.getElementById('hit-zone').style.display = 'none';
       document.getElementById('hud-mode').textContent = '';
       finalScoreVal.textContent = score;
@@ -1001,6 +1016,14 @@
       laneEls[lane].appendChild(el);
       el.addEventListener('animationend', () => el.remove());
     }
+    // 譜面メーカー(8レーン)用フラッシュ。laneContainerに直接配置
+    function flashCustomLane(lane) {
+      const laneW = laneContainer.offsetWidth / 8;
+      const el = document.createElement('div');
+      el.style.cssText = 'position:absolute;top:0;bottom:0;background:rgba(180,220,255,0.55);pointer-events:none;animation:flashTap 0.25s ease-out forwards;z-index:15;left:' + (lane * laneW) + 'px;width:' + laneW + 'px;';
+      laneContainer.appendChild(el);
+      el.addEventListener('animationend', () => el.remove());
+    }
 
     // ===== タップ判定 =====
     function handleInput(e) {
@@ -1020,10 +1043,16 @@
       if (gameMode === 'music' || gameMode === 'piano' || gameMode === 'custom') {
         const hitZoneTopY = laneContainer.offsetHeight * (1 - HIT_ZONE_RATIO);
         if (points[0].y < hitZoneTopY) return;
+        if (gameMode === 'custom') {
+          const laneW8 = laneContainer.offsetWidth / EDLANES;
+          const tapLane = Math.max(0, Math.min(EDLANES - 1, Math.floor(points[0].x / laneW8)));
+          flashCustomLane(tapLane);
+          handleChartTap(tapLane);
+          return;
+        }
         const tapLane = Math.floor(points[0].x / lw);
         flashLane(tapLane);
-        if (gameMode === 'custom') handleChartTap(tapLane);
-        else if (gameMode === 'piano') handlePianoTap(tapLane);
+        if (gameMode === 'piano') handlePianoTap(tapLane);
         else handleMusicTap(tapLane);
         return;
       }
@@ -1362,14 +1391,19 @@
           cn.spawned = true;
           const isLong = cn.type === 'long';
           const noteH  = isLong ? baseNoteH + cn.dur * fallSpeed : baseNoteH;
+          const w      = cn.w || 1;
+          const laneW  = laneContainer.offsetWidth / EDLANES;   // 8レーン
           const el = document.createElement('div');
           el.className = cn.type === 'heal'   ? 'note note-heal'
                        : cn.type === 'damage' ? 'note note-trap'
                        : isLong               ? 'note note-long' : 'note';
           el.style.height = noteH + 'px';
           el.style.top    = '0px';
-          laneEls[cn.lane].appendChild(el);
-          fallingNotes.push({ lane: cn.lane, el, noteStart, t: cn.t,
+          el.style.left   = (cn.lane * laneW + 2) + 'px';
+          el.style.width  = (w * laneW - 4) + 'px';
+          el.style.right  = 'auto';
+          laneContainer.appendChild(el);   // 8レーン＋可変幅のため直接配置
+          fallingNotes.push({ lane: cn.lane, w, el, noteStart, t: cn.t,
             type: cn.type, dur: cn.dur || 0, noteH, long: isLong, held: false, activated: false });
         }
       }
@@ -1424,7 +1458,8 @@
         const note    = fallingNotes[i];
         const noteTop = (songTime - note.noteStart) * fallSpeed - note.noteH;
         const noteBot = noteTop + note.noteH;
-        if (note.lane === tapLane && noteBot > hitZoneTop && noteTop < screenH) {
+        const w = note.w || 1;
+        if (tapLane >= note.lane && tapLane <= note.lane + w - 1 && noteBot > hitZoneTop && noteTop < screenH) {
           if (note.type === 'long') {
             if (!note.activated) {
               note.activated = true; note.held = true; heldLongNote = note;
@@ -1470,7 +1505,7 @@
       chartLeadIn   = 4 * 60 / (chart.bpm || 120);   // BPMの1小節分(4拍)
       // マスター一覧を構築（時刻順、fromTimeより前のnoteは出現済み扱いでスキップ）
       chartNotes = chart.notes
-        .map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0, spawned: n.t < fromTime }))
+        .map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0, w: n.w || 1, spawned: n.t < fromTime }))
         .sort((a, b) => a.t - b.t);
 
       hudScore.textContent = '0';
@@ -1487,6 +1522,7 @@
       }
       document.getElementById('hit-zone').style.display = 'block';
       document.getElementById('hud-mode').textContent = chart.title || 'CUSTOM';
+      laneContainer.classList.add('lc8');   // 8レーン表示(4レーン境界線を隠す)
 
       const song = SONGS[chart.songId] || SONGS[Object.keys(SONGS)[0]];
       chartAudio.src = song.file;
@@ -1616,6 +1652,7 @@
 
     // ===== キーボード入力 (D=0, F=1, J=2, K=3) =====
     const KEY_LANE = { d: 0, f: 1, j: 2, k: 3 };
+    const KEY_LANE8 = { a: 0, s: 1, d: 2, f: 3, j: 4, k: 5, l: 6, ';': 7 };  // 譜面メーカー(8レーン)
 
     document.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
@@ -1629,14 +1666,23 @@
         return;
       }
       if (STATE !== 'playing') return;
+
+      if (gameMode === 'custom') {              // 8レーン: a s d f j k l ;
+        const lane8 = KEY_LANE8[e.key.toLowerCase()];
+        if (lane8 === undefined) return;
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        flashCustomLane(lane8);
+        handleChartTap(lane8);
+        return;
+      }
+
       const lane = KEY_LANE[e.key.toLowerCase()];
       if (lane === undefined) return;
       if (audioCtx.state === 'suspended') audioCtx.resume();
 
-      if (gameMode === 'music' || gameMode === 'piano' || gameMode === 'custom') {
+      if (gameMode === 'music' || gameMode === 'piano') {
         flashLane(lane);
-        if (gameMode === 'custom') handleChartTap(lane);
-        else if (gameMode === 'piano') handlePianoTap(lane);
+        if (gameMode === 'piano') handlePianoTap(lane);
         else handleMusicTap(lane);
         return;
       }
@@ -1749,10 +1795,12 @@
     // ============================================================
     const EDITOR_PX_PER_SEC = 400;   // 縦1秒あたりのピクセル
     const EDITOR_NOTE_H     = 24;    // 通常noteの表示高さ(px)
+    const EDLANES           = 8;     // 譜面メーカーのレーン数（本編は4のまま）
 
     let editorChart    = null;   // {title, songId, chartType, bpm, offset, noteSpeed, notes:[]}
     let editorDraftId  = null;   // 編集中の下書きID（localStorage上）。新規はnull
     let editorNoteType = 'normal';
+    let editorWidth    = 1;      // 配置するnoteの横幅(レーン数 1〜4)
     let editorSubdiv   = 4;      // 4 | 8 | 16
     let editorLongStart= null;   // （旧）未使用
     let edDrag         = null;   // ドラッグ操作中 {type:'create-long'|'move'|'resize-end', note, lane, startT, endT, grabOffsetT, lastClientX, lastClientY, raf}
@@ -1777,7 +1825,8 @@
     const edPlay    = document.getElementById('ed-play');
     const edUndoBtn = document.getElementById('ed-undo');
     const edRedoBtn = document.getElementById('ed-redo');
-    const edLanes   = [0,1,2,3].map(i => document.getElementById('ed-lane-' + i));
+    const edNotes   = document.getElementById('editor-notes');
+    function edLaneW() { return edGrid.clientWidth / EDLANES; }   // 1レーンの幅(px)
 
     // 曲選択の選択肢を生成
     Object.entries(SONGS).forEach(([id, s]) => {
@@ -1823,9 +1872,14 @@
       renderEditorNotes();
     }
 
-    // ----- note描画（配列から再構築）-----
+    // ----- note描画（配列から再構築。重ね層に絶対配置・横幅対応）-----
+    function setNoteX(el, lane, w) {
+      const lw = edLaneW();
+      el.style.left  = (lane * lw + 2) + 'px';
+      el.style.width = (w * lw - 4) + 'px';
+    }
     function renderEditorNotes() {
-      edLanes.forEach(l => l.querySelectorAll('.ed-note').forEach(n => n.remove()));
+      edNotes.innerHTML = '';
       for (const n of editorChart.notes) {
         const el = document.createElement('div');
         el.className = 'ed-note' +
@@ -1839,17 +1893,18 @@
           el.style.top = (yLine(n.t) - EDITOR_NOTE_H) + 'px';
           el.style.height = EDITOR_NOTE_H + 'px';
         }
-        edLanes[n.lane].appendChild(el);
+        setNoteX(el, n.lane, n.w || 1);
+        edNotes.appendChild(el);
       }
       if (edDrag && edDrag.type === 'create-long') {
-        const head = edDrag.startT;
         const dur  = Math.max(edCellSec(), edDrag.endT - edDrag.startT);
         const dh   = Math.max(8, dur * EDITOR_PX_PER_SEC);
         const el = document.createElement('div');
         el.className = 'ed-note ed-note-long ed-pending';
-        el.style.top = (yLine(head) - dh) + 'px';
+        el.style.top = (yLine(edDrag.startT) - dh) + 'px';
         el.style.height = dh + 'px';
-        edLanes[edDrag.lane].appendChild(el);
+        setNoteX(el, edDrag.lane, edDrag.w || 1);
+        edNotes.appendChild(el);
       }
     }
 
@@ -1930,7 +1985,8 @@
     function hitTestNote(lane, y) {
       const PAD = 6;
       for (const n of editorChart.notes) {
-        if (n.lane !== lane) continue;
+        const w = n.w || 1;
+        if (lane < n.lane || lane > n.lane + w - 1) continue;
         let top, bottom;
         if (n.type === 'long') { top = yLine(n.t + n.dur); bottom = yLine(n.t); }
         else { top = yLine(n.t) - EDITOR_NOTE_H; bottom = yLine(n.t); }
@@ -1962,10 +2018,17 @@
       renderEditorNotes();
     }
 
+    // クリックX座標→レーン番号(0〜7)。幅wぶん右にはみ出さないよう制限
+    function laneFromClientX(clientX, w = 1) {
+      const gRect = edGrid.getBoundingClientRect();
+      let lane = Math.floor((clientX - gRect.left) / (gRect.width / EDLANES));
+      return Math.max(0, Math.min(EDLANES - w, lane));
+    }
+
     // ロング新規作成ドラッグを開始
     function beginCreateLong(lane, y, clientX, clientY) {
       const t = snapT(tAtY(y));
-      edDrag = { type: 'create-long', lane, startT: t, endT: t, lastClientX: clientX, lastClientY: clientY };
+      edDrag = { type: 'create-long', lane, w: editorWidth, startT: t, endT: t, lastClientX: clientX, lastClientY: clientY };
       edDrag.raf = requestAnimationFrame(dragLoop);
       renderEditorNotes();
     }
@@ -1987,25 +2050,26 @@
       } else if (edDrag.type === 'resize-end') {
         edDrag.note.dur = Math.max(edCellSec(), snapT(pointerT) - edDrag.note.t);
       } else if (edDrag.type === 'move') {
-        const laneW = gRect.width / 4;
-        edDrag.note.lane = Math.max(0, Math.min(3, Math.floor((edDrag.lastClientX - gRect.left) / laneW)));
+        edDrag.note.lane = laneFromClientX(edDrag.lastClientX, edDrag.note.w || 1);
         edDrag.note.t    = snapT(pointerT + edDrag.grabOffsetT);
       }
       renderEditorNotes();
       edDrag.raf = requestAnimationFrame(dragLoop);
     }
 
-    function onPadPointerDown(lane, e) {
+    function onPadPointerDown(e) {
       if (editorPlaying) return;
       const gRect = edGrid.getBoundingClientRect();
       const y = e.clientY - gRect.top;
-      const hit = hitTestNote(lane, y);
-      edPress = { lane, startClientY: e.clientY, lastClientX: e.clientX, y, hit, tailZone: hit ? hit.tail : false, timer: null, moved: false };
+      const rawLane = Math.max(0, Math.min(EDLANES - 1, Math.floor((e.clientX - gRect.left) / (gRect.width / EDLANES))));
+      const hit = hitTestNote(rawLane, y);
+      edPress = { lane: rawLane, startClientY: e.clientY, lastClientX: e.clientX, y, hit, tailZone: hit ? hit.tail : false, timer: null, moved: false };
 
       if (hit) {
         edPress.timer = setTimeout(beginGrab, LONGPRESS_MS);  // 既存note: 長押しで移動/伸縮
       } else if (editorNoteType === 'long') {
         e.preventDefault();                                   // 空白×ロング: すぐ作成ドラッグ
+        const lane = laneFromClientX(e.clientX, editorWidth);
         edPress = null;
         beginCreateLong(lane, y, e.clientX, e.clientY);
       }
@@ -2029,14 +2093,15 @@
       clearTimeout(edPress.timer);
       if (!edPress.moved) {                      // クイックタップ
         const t = snapT(tAtY(edPress.y));
+        const lane = Math.min(edPress.lane, EDLANES - editorWidth);  // 幅ぶん右にはみ出さない
         let changed = false;
         if (editorNoteType === 'eraser') {
           if (edPress.hit) { editorChart.notes.splice(editorChart.notes.indexOf(edPress.hit.note), 1); changed = true; }
         } else if (editorNoteType === 'long') {
-          if (!edPress.hit) { editorChart.notes.push({ lane: edPress.lane, t, type: 'long', dur: edCellSec() }); changed = true; }
+          if (!edPress.hit) { editorChart.notes.push({ lane, t, type: 'long', dur: edCellSec(), w: editorWidth }); changed = true; }
         } else {
           if (edPress.hit) editorChart.notes.splice(editorChart.notes.indexOf(edPress.hit.note), 1);  // 配置⇔削除
-          else editorChart.notes.push({ lane: edPress.lane, t, type: editorNoteType });
+          else editorChart.notes.push({ lane, t, type: editorNoteType, w: editorWidth });
           changed = true;
         }
         if (changed) { renderEditorNotes(); pushHistory(); }
@@ -2047,7 +2112,7 @@
       if (edDrag.raf) cancelAnimationFrame(edDrag.raf);
       if (edDrag.type === 'create-long') {
         const dur = Math.max(edCellSec(), edDrag.endT - edDrag.startT);
-        editorChart.notes.push({ lane: edDrag.lane, t: edDrag.startT, type: 'long', dur });
+        editorChart.notes.push({ lane: edDrag.lane, t: edDrag.startT, type: 'long', dur, w: edDrag.w || 1 });
       }
       edDrag = null;
       edScroll.classList.toggle('ed-noscroll', editorNoteType === 'long');  // ロング時のみnoscroll維持
@@ -2061,7 +2126,7 @@
       edPress = null;
     }
 
-    edLanes.forEach((l, i) => l.addEventListener('pointerdown', e => onPadPointerDown(i, e)));
+    edGrid.addEventListener('pointerdown', onPadPointerDown);
     document.addEventListener('pointermove', onPadPointerMove, { passive: false });
     document.addEventListener('pointerup', onPadPointerUp);
     document.addEventListener('pointercancel', () => { if (edDrag) finishDrag(); else if (edPress) { clearTimeout(edPress.timer); edPress = null; } });
@@ -2105,7 +2170,7 @@
       const data = {
         title: editorChart.title || '', songId: editorChart.songId, chartType: editorChart.chartType,
         bpm: editorChart.bpm, offset: editorChart.offset, noteSpeed: editorChart.noteSpeed || 0.6,
-        notes: editorChart.notes.map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0 })),
+        notes: editorChart.notes.map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0, w: n.w || 1 })),
         updated: Date.now(),
       };
       const drafts = loadDrafts();
@@ -2151,7 +2216,7 @@
       editorChart = {
         title: d.title || '', songId: d.songId, chartType: d.chartType,
         bpm: d.bpm, offset: d.offset, noteSpeed: d.noteSpeed || 0.6,
-        notes: (d.notes || []).map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0 })),
+        notes: (d.notes || []).map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0, w: n.w || 1 })),
       };
       editorDraftId = d.id;
       openEditor();
@@ -2226,7 +2291,7 @@
         bpm:       editorChart.bpm,
         offset:    editorChart.offset,
         noteSpeed: editorChart.noteSpeed || 0.6,
-        notes:     editorChart.notes.map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0 })),
+        notes:     editorChart.notes.map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0, w: n.w || 1 })),
       };
     }
 
@@ -2262,6 +2327,12 @@
         editorSubdiv = parseInt(b.dataset.subdiv, 10);
         document.querySelectorAll('.ed-subdiv').forEach(x => x.classList.toggle('active', x === b));
         layoutEditorGrid();
+      });
+    });
+    document.querySelectorAll('.ed-width').forEach(b => {
+      b.addEventListener('click', () => {
+        editorWidth = parseInt(b.dataset.width, 10);
+        document.querySelectorAll('.ed-width').forEach(x => x.classList.toggle('active', x === b));
       });
     });
     edUndoBtn.addEventListener('click', edUndo);
