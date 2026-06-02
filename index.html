@@ -467,14 +467,22 @@
       overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
     }
     .browse-item {
-      display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-      width: 100%; text-align: left;
-      padding: 12px 14px; border-radius: 10px;
+      display: flex; align-items: stretch; gap: 6px; width: 100%;
+    }
+    .bi-play {
+      flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+      text-align: left; padding: 12px 14px; border-radius: 10px;
       border: 1px solid #555; background: #1e1e1e; color: #fff; cursor: pointer;
     }
-    .browse-item:hover { background: #2a2a2a; }
+    .bi-play:hover { background: #2a2a2a; }
     .bi-title { font-size: 16px; font-weight: 700; }
     .bi-sub   { font-size: 12px; color: #aaa; }
+    .bi-del {
+      width: 48px; flex: none; border-radius: 10px;
+      border: 1px solid #a44; background: #2a1414; color: #ff8877;
+      font-size: 18px; cursor: pointer;
+    }
+    .bi-del:disabled { opacity: 0.4; }
     #browse-list .browse-empty { color: #aaa; text-align: center; padding: 20px; }
     #browse-buttons { display: flex; gap: 10px; }
     #browse-buttons button {
@@ -526,7 +534,7 @@
   </div>
 
   <div id="screen-gameover" class="screen">
-    <h2>GAME OVER</h2>
+    <h2 id="gameover-title">GAME OVER</h2>
     <div id="final-score">SCORE: <span id="final-score-value">0</span></div>
     <div id="final-rank">あなたは<span id="final-rank-value"></span>です</div>
     <div id="ranking-wrap">
@@ -591,7 +599,7 @@
   <script type="module">
     // ===== Firebase =====
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-    import { getFirestore, doc, getDoc, setDoc, addDoc, collection, getDocs, orderBy, query, limit, serverTimestamp }
+    import { getFirestore, doc, getDoc, setDoc, addDoc, deleteDoc, collection, getDocs, orderBy, query, limit, serverTimestamp }
       from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
     const firebaseConfig = {
@@ -639,6 +647,9 @@
       const q = query(collection(db, 'charts'), orderBy('createdAt', 'desc'), limit(50));
       const snap = await getDocs(q);
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+    async function deleteChart(id) {
+      await deleteDoc(doc(db, 'charts', id));
     }
     function escapeHtml(s) {
       return String(s || '').replace(/[&<>"']/g, c =>
@@ -868,9 +879,12 @@
     }
 
     // ===== ゲームオーバー =====
-    async function triggerGameOver() {
+    async function triggerGameOver(cleared = false) {
       STATE = 'gameover';
       cancelAnimationFrame(animFrameId);
+      const goTitle = document.getElementById('gameover-title');
+      goTitle.textContent = cleared ? 'CLEAR!' : 'GAME OVER';
+      goTitle.style.color = cleared ? '#3de87a' : '';
       // ミュージック/譜面モードのクリーンアップ
       clearTimeout(spawnTimerId);
       spawnTimerId = null;
@@ -1373,7 +1387,7 @@
       // 全note消化＝クリア → 結果画面へ
       if (fallingNotes.length === 0 && chartNotes.every(c => c.spawned)) {
         stopChartAudio();
-        triggerGameOver();
+        triggerGameOver(true);
         return;
       }
 
@@ -2209,13 +2223,29 @@
         list.innerHTML = '';
         charts.forEach(c => {
           const song = SONGS[c.songId];
-          const item = document.createElement('button');
-          item.className = 'browse-item';
-          item.innerHTML =
+          const row = document.createElement('div');
+          row.className = 'browse-item';
+
+          const play = document.createElement('button');
+          play.className = 'bi-play';
+          play.innerHTML =
             `<span class="bi-title">${escapeHtml(c.title)}</span>` +
             `<span class="bi-sub">${c.chartType === 'music' ? 'ミュージック' : 'ピアノ'} / ${escapeHtml(song ? song.title : c.songId)} / ${escapeHtml(c.author || '')}</span>`;
-          item.addEventListener('click', () => playCommunityChart(c));
-          list.appendChild(item);
+          play.addEventListener('click', () => playCommunityChart(c));
+
+          const del = document.createElement('button');
+          del.className = 'bi-del';
+          del.textContent = '🗑';
+          del.addEventListener('click', async () => {
+            if (!confirm(`「${c.title}」を削除しますか？`)) return;
+            del.disabled = true;
+            try { await deleteChart(c.id); row.remove(); }
+            catch (e) { console.error('delete chart error:', e); alert('削除に失敗しました'); del.disabled = false; }
+          });
+
+          row.appendChild(play);
+          row.appendChild(del);
+          list.appendChild(row);
         });
       } catch (e) {
         console.error('load charts error:', e);
