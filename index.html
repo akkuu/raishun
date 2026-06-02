@@ -477,6 +477,7 @@
     .bi-play:hover { background: #2a2a2a; }
     .bi-title { font-size: 16px; font-weight: 700; }
     .bi-sub   { font-size: 12px; color: #aaa; }
+    .bi-stat  { font-size: 12px; color: #7fd0ff; }
     .bi-del {
       width: 48px; flex: none; border-radius: 10px;
       border: 1px solid #a44; background: #2a1414; color: #ff8877;
@@ -599,7 +600,7 @@
   <script type="module">
     // ===== Firebase =====
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-    import { getFirestore, doc, getDoc, setDoc, addDoc, deleteDoc, collection, getDocs, orderBy, query, limit, serverTimestamp }
+    import { getFirestore, doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, increment, collection, getDocs, orderBy, query, limit, serverTimestamp }
       from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
     const firebaseConfig = {
@@ -650,6 +651,10 @@
     }
     async function deleteChart(id) {
       await deleteDoc(doc(db, 'charts', id));
+    }
+    function bumpChartStat(id, field) {   // プレイ数/クリア数を加算（失敗は無視）
+      if (!id) return;
+      updateDoc(doc(db, 'charts', id), { [field]: increment(1) }).catch(e => console.error('stat error:', e));
     }
     function escapeHtml(s) {
       return String(s || '').replace(/[&<>"']/g, c =>
@@ -1387,6 +1392,7 @@
       // 全note消化＝クリア → 結果画面へ
       if (fallingNotes.length === 0 && chartNotes.every(c => c.spawned)) {
         stopChartAudio();
+        if (!chartFromEditor && currentChart && currentChart.id) bumpChartStat(currentChart.id, 'clears');
         triggerGameOver(true);
         return;
       }
@@ -2226,25 +2232,32 @@
           const row = document.createElement('div');
           row.className = 'browse-item';
 
+          const plays  = c.plays  || 0;
+          const clears = c.clears || 0;
+          const rate   = plays > 0 ? Math.round(clears / plays * 100) : 0;
+
           const play = document.createElement('button');
           play.className = 'bi-play';
           play.innerHTML =
             `<span class="bi-title">${escapeHtml(c.title)}</span>` +
-            `<span class="bi-sub">${c.chartType === 'music' ? 'ミュージック' : 'ピアノ'} / ${escapeHtml(song ? song.title : c.songId)} / ${escapeHtml(c.author || '')}</span>`;
+            `<span class="bi-sub">${c.chartType === 'music' ? 'ミュージック' : 'ピアノ'} / ${escapeHtml(song ? song.title : c.songId)} / ${escapeHtml(c.author || '')}</span>` +
+            `<span class="bi-stat">プレイ ${plays} ・ クリア ${clears} ・ クリア率 ${rate}%</span>`;
           play.addEventListener('click', () => playCommunityChart(c));
-
-          const del = document.createElement('button');
-          del.className = 'bi-del';
-          del.textContent = '🗑';
-          del.addEventListener('click', async () => {
-            if (!confirm(`「${c.title}」を削除しますか？`)) return;
-            del.disabled = true;
-            try { await deleteChart(c.id); row.remove(); }
-            catch (e) { console.error('delete chart error:', e); alert('削除に失敗しました'); del.disabled = false; }
-          });
-
           row.appendChild(play);
-          row.appendChild(del);
+
+          // 削除は作者本人(ニックネーム一致)のみ
+          if (c.author && nickname && c.author === nickname) {
+            const del = document.createElement('button');
+            del.className = 'bi-del';
+            del.textContent = '🗑';
+            del.addEventListener('click', async () => {
+              if (!confirm(`「${c.title}」を削除しますか？`)) return;
+              del.disabled = true;
+              try { await deleteChart(c.id); row.remove(); }
+              catch (e) { console.error('delete chart error:', e); alert('削除に失敗しました'); del.disabled = false; }
+            });
+            row.appendChild(del);
+          }
           list.appendChild(row);
         });
       } catch (e) {
@@ -2254,6 +2267,7 @@
     }
     function playCommunityChart(c) {
       chartFromEditor = false;   // リザルトからはスタート画面へ
+      bumpChartStat(c.id, 'plays');
       startChartGame(c, 0);
     }
     document.getElementById('btn-mode-community').addEventListener('click', () => {
