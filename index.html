@@ -543,7 +543,8 @@
         <button id="ed-undo">↶戻す</button>
         <button id="ed-redo">↷進む</button>
         <button id="ed-play">▶</button>
-        <button id="ed-test">テスト</button>
+        <button id="ed-test">最初から</button>
+        <button id="ed-test-here">ここから</button>
         <button id="ed-save">保存</button>
         <button id="ed-back">戻る</button>
       </div>
@@ -2098,6 +2099,14 @@
       cancelLongDrag();
       chartFromEditor = true;
       startChartGame(buildEditorChart(), 0);
+    });
+    document.getElementById('ed-test-here').addEventListener('click', () => {
+      stopEditorPreview();
+      cancelLongDrag();
+      chartFromEditor = true;
+      // いま見えている一番下(=最も早い時刻)から少し前を起点にする
+      const fromT = Math.max(0, tAtY(edScroll.scrollTop + edScroll.clientHeight) - 1.0);
+      startChartGame(buildEditorChart(), fromT);
     });
     document.getElementById('ed-save').addEventListener('click', () => {
       alert('保存はPhaseでこのあとFirebaseに繋ぎます（現在は未実装）');
