@@ -583,6 +583,7 @@
         <button id="ed-test">最初から</button>
         <button id="ed-test-here">ここから</button>
         <button id="ed-save">保存</button>
+        <button id="ed-new">新規</button>
         <button id="ed-back">戻る</button>
       </div>
     </div>
@@ -1598,7 +1599,7 @@
       if (gameMode === 'music') startMusicGame();
       else if (gameMode === 'endless') startEndlessGame();
       else if (gameMode === 'piano') startPianoGame();
-      else if (gameMode === 'custom') startChartGame(currentChart, 0);
+      else if (gameMode === 'custom') startChartGame(currentChart, chartPlayFrom);
       else startGame();
     }
 
@@ -2208,6 +2209,14 @@
         alert('保存に失敗しました');
       }
       btn.disabled = false; btn.textContent = '保存';
+    });
+    document.getElementById('ed-new').addEventListener('click', () => {
+      if (editorChart && editorChart.notes.length > 0 &&
+          !confirm('新しい譜面を作ります。今の譜面（未保存なら消えます）をリセットしてよいですか？')) return;
+      stopEditorPreview();
+      cancelLongDrag();
+      editorChart = null;   // openEditorが新規作成する
+      openEditor();
     });
     document.getElementById('ed-back').addEventListener('click', () => {
       stopEditorPreview();
