@@ -70,6 +70,12 @@
       letter-spacing: 4px;
     }
 
+    #song-pick { font-size: 14px; color: #fff; }
+    #song-select {
+      font-size: 14px; padding: 6px 10px; border-radius: 8px;
+      border: 1px solid #888; background: #222; color: #fff;
+    }
+
     #mode-buttons {
       display: flex;
       flex-wrap: wrap;
@@ -544,6 +550,7 @@
   <div id="screen-start" class="screen">
     <h1>雷駿先輩</h1>
     <input id="nickname-input" type="text" placeholder="ニックネームを入力" maxlength="12">
+    <div id="song-pick">曲：<select id="song-select"></select></div>
     <div id="mode-buttons">
       <button class="btn-mode active" id="btn-mode-score">スコアアタック</button>
       <button class="btn-mode" id="btn-mode-endless">エンドレシュン</button>
@@ -915,7 +922,17 @@
     // ===== 譜面メーカー: 同梱曲テーブル（songIdで参照。mp3を増やすにはここに1行追加）=====
     const SONGS = {
       kurenaishin: { title: '紅鎮', file: 'Kurenaishin.mp3' },
+      buriki:      { title: 'ブリキノダンス', file: 'ブリキノダンス.mp3' },
     };
+
+    // スタート画面の曲選択（ミュージック/ピアノタイル用）
+    const songSelect = document.getElementById('song-select');
+    Object.entries(SONGS).forEach(([id, s]) => {
+      const opt = document.createElement('option');
+      opt.value = id; opt.textContent = s.title;
+      songSelect.appendChild(opt);
+    });
+    let currentBgmFile = 'Kurenaishin.mp3';
 
     // ===== 譜面再生エンジンの状態 =====
     let currentChart   = null;        // 再生中の譜面オブジェクト
@@ -1835,6 +1852,8 @@
     });
 
     function playBGM() {
+      const s = SONGS[songSelect.value];
+      if (s && s.file !== currentBgmFile) { bgmAudio.src = s.file; currentBgmFile = s.file; }
       bgmAudio.currentTime = 0;
       bgmAudio.play().catch(console.error);
     }
