@@ -457,6 +457,10 @@
     .ed-note-heal   { background: #22cc77; }
     .ed-note-damage { background: #ee4433; }
     .ed-pending { outline: 2px dashed #ffeb3b; opacity: 0.7; }
+    .ed-selband { position: absolute; left: 0; right: 0; z-index: 2;
+      background: rgba(255,235,59,0.18); border-top: 1px dashed #ffeb3b; border-bottom: 1px dashed #ffeb3b; }
+    .ed-pal-copy  { border-color: #ffd24a; color: #ffd24a; }
+    .ed-pal-paste { border-color: #4ad2ff; color: #4ad2ff; }
     .ed-grabbed { outline: 3px solid #ffeb3b; box-shadow: 0 0 12px #ffeb3b; z-index: 6; }
 
     #editor-side { width: 72px; display: flex; flex-direction: column; gap: 6px; }
@@ -1845,6 +1849,7 @@
     let edPress        = null;   // 押下〜判定前 {lane, startClientY, y, hit, tailZone, timer, moved}
     let edHistory      = [];     // 編集履歴(notesのJSONスナップショット)
     let edHistoryIdx   = -1;     // 現在位置
+    let edClipboard    = null;   // 範囲コピーした内容 {notes:[{lane,relT,type,dur,w}]}
     let editorPlaying  = false;
     let editorPreviewRAF = null;
     let editorGridH    = 0;      // 現在のグリッド全体の高さ(px)。縦軸は下=時間0, 上=後
@@ -1934,6 +1939,14 @@
         setNoteX(el, n.lane, n.w || 1);
         edNotes.appendChild(el);
       }
+      if (edDrag && edDrag.type === 'range') {
+        const a = Math.min(edDrag.startT, edDrag.endT), b = Math.max(edDrag.startT, edDrag.endT);
+        const band = document.createElement('div');
+        band.className = 'ed-selband';
+        band.style.top = yLine(b) + 'px';
+        band.style.height = ((b - a) * EDITOR_PX_PER_SEC) + 'px';
+        edNotes.appendChild(band);
+      }
       if (edDrag && edDrag.type === 'create-long') {
         const dur  = Math.max(edCellSec(), edDrag.endT - edDrag.startT);
         const dh   = Math.max(8, dur * EDITOR_PX_PER_SEC);
@@ -1983,6 +1996,24 @@
         b.onclick = () => setEditorNoteType(key);
         edPalette.appendChild(b);
       });
+      const cp = document.createElement('button');
+      cp.className = 'ed-pal ed-pal-copy' + (editorNoteType === 'rangecopy' ? ' active' : '');
+      cp.textContent = '範囲コピー';
+      cp.onclick = () => setEditorNoteType('rangecopy');
+      edPalette.appendChild(cp);
+
+      const ps = document.createElement('button');
+      ps.className = 'ed-pal ed-pal-paste' + (editorNoteType === 'paste' ? ' active' : '');
+      ps.textContent = '貼り付け';
+      ps.onclick = () => setEditorNoteType('paste');
+      edPalette.appendChild(ps);
+
+      const psf = document.createElement('button');
+      psf.className = 'ed-pal ed-pal-paste' + (editorNoteType === 'pasteflip' ? ' active' : '');
+      psf.textContent = '反転貼付';
+      psf.onclick = () => setEditorNoteType('pasteflip');
+      edPalette.appendChild(psf);
+
       const er = document.createElement('button');
       er.className = 'ed-pal' + (editorNoteType === 'eraser' ? ' active' : '');
       er.textContent = '消しゴム';
@@ -2006,7 +2037,7 @@
     function setEditorNoteType(t) {
       editorNoteType = t;
       cancelLongDrag();
-      edScroll.classList.toggle('ed-noscroll', t === 'long');  // ロング中はタッチscroll停止(自前scroll)
+      edScroll.classList.toggle('ed-noscroll', t === 'long' || t === 'rangecopy');  // ドラッグ操作中はタッチscroll停止
       rebuildPalette();
       renderEditorNotes();
     }
@@ -2063,6 +2094,26 @@
       return Math.max(0, Math.min(EDLANES - w, lane));
     }
 
+    // 範囲[a,b]内のnoteをクリップボードへコピー（相対時刻で保持）
+    function copyRange(a, b) {
+      const lo = Math.min(a, b), hi = Math.max(a, b);
+      const sel = editorChart.notes.filter(n => n.t >= lo - 1e-6 && n.t <= hi + 1e-6);
+      if (sel.length === 0) { edClipboard = null; alert('範囲内にノーツがありません'); return; }
+      edClipboard = { notes: sel.map(n => ({ lane: n.lane, relT: n.t - lo, type: n.type, dur: n.dur || 0, w: n.w || 1 })) };
+      alert('コピーしました（' + sel.length + '個）。「貼り付け」を選んで置きたい場所をタップ');
+    }
+    // クリップボードを時刻tを起点に貼り付け。flip=trueで左右反転
+    function pasteClipboard(t, flip) {
+      if (!edClipboard) { alert('先に「範囲コピー」でコピーしてね'); return; }
+      edClipboard.notes.forEach(c => {
+        const w = c.w || 1;
+        const lane = flip ? (EDLANES - w - c.lane) : c.lane;   // 反転: 占有範囲を左右ミラー
+        editorChart.notes.push({ lane: Math.max(0, Math.min(EDLANES - w, lane)), t: t + c.relT, type: c.type, dur: c.dur, w });
+      });
+      renderEditorNotes();
+      pushHistory();
+    }
+
     // ロング新規作成ドラッグを開始
     function beginCreateLong(lane, y, clientX, clientY) {
       const t = snapT(tAtY(y));
@@ -2083,7 +2134,7 @@
       const gRect = edGrid.getBoundingClientRect();
       const pointerT = tAtY(edDrag.lastClientY - gRect.top);
 
-      if (edDrag.type === 'create-long') {
+      if (edDrag.type === 'create-long' || edDrag.type === 'range') {
         edDrag.endT = snapT(pointerT);
       } else if (edDrag.type === 'resize-end') {
         edDrag.note.dur = Math.max(edCellSec(), snapT(pointerT) - edDrag.note.t);
@@ -2099,7 +2150,23 @@
       if (editorPlaying) return;
       const gRect = edGrid.getBoundingClientRect();
       const y = e.clientY - gRect.top;
+
+      if (editorNoteType === 'rangecopy') {                   // 範囲選択ドラッグ
+        e.preventDefault();
+        const t = snapT(tAtY(y));
+        edDrag = { type: 'range', startT: t, endT: t, lastClientX: e.clientX, lastClientY: e.clientY };
+        edDrag.raf = requestAnimationFrame(dragLoop);
+        renderEditorNotes();
+        return;
+      }
+
       const rawLane = Math.max(0, Math.min(EDLANES - 1, Math.floor((e.clientX - gRect.left) / (gRect.width / EDLANES))));
+
+      if (editorNoteType === 'paste' || editorNoteType === 'pasteflip') {   // タップで貼り付け
+        edPress = { lane: rawLane, startClientY: e.clientY, lastClientX: e.clientX, y, hit: null, tailZone: false, timer: null, moved: false };
+        return;
+      }
+
       const hit = hitTestNote(rawLane, y);
       edPress = { lane: rawLane, startClientY: e.clientY, lastClientX: e.clientX, y, hit, tailZone: hit ? hit.tail : false, timer: null, moved: false };
 
@@ -2131,6 +2198,8 @@
       clearTimeout(edPress.timer);
       if (!edPress.moved) {                      // クイックタップ
         const t = snapT(tAtY(edPress.y));
+        if (editorNoteType === 'paste')     { pasteClipboard(t, false); edPress = null; return; }
+        if (editorNoteType === 'pasteflip') { pasteClipboard(t, true);  edPress = null; return; }
         const lane = Math.min(edPress.lane, EDLANES - editorWidth);  // 幅ぶん右にはみ出さない
         let changed = false;
         if (editorNoteType === 'eraser') {
@@ -2148,14 +2217,22 @@
     }
     function finishDrag() {
       if (edDrag.raf) cancelAnimationFrame(edDrag.raf);
+      if (edDrag.type === 'range') {            // 範囲選択完了→コピー
+        const a = edDrag.startT, b = edDrag.endT;
+        edDrag = null;
+        renderEditorNotes();
+        copyRange(a, b);
+        return;
+      }
       if (edDrag.type === 'create-long') {
         const dur = Math.max(edCellSec(), edDrag.endT - edDrag.startT);
         editorChart.notes.push({ lane: edDrag.lane, t: edDrag.startT, type: 'long', dur, w: edDrag.w || 1 });
       }
+      const wasMutating = edDrag.type === 'move' || edDrag.type === 'resize-end' || edDrag.type === 'create-long';
       edDrag = null;
-      edScroll.classList.toggle('ed-noscroll', editorNoteType === 'long');  // ロング時のみnoscroll維持
+      edScroll.classList.toggle('ed-noscroll', editorNoteType === 'long' || editorNoteType === 'rangecopy');
       renderEditorNotes();
-      pushHistory();
+      if (wasMutating) pushHistory();
     }
     function cancelLongDrag() {
       if (edDrag && edDrag.raf) cancelAnimationFrame(edDrag.raf);
