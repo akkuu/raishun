@@ -459,6 +459,7 @@
     .ed-pending { outline: 2px dashed #ffeb3b; opacity: 0.7; }
     .ed-selband { position: absolute; left: 0; right: 0; z-index: 2;
       background: rgba(255,235,59,0.18); border-top: 1px dashed #ffeb3b; border-bottom: 1px dashed #ffeb3b; }
+    .ed-selband.del { background: rgba(255,68,68,0.18); border-top-color: #ff4d4d; border-bottom-color: #ff4d4d; }
     .ed-pal-copy  { border-color: #ffd24a; color: #ffd24a; }
     .ed-pal-paste { border-color: #4ad2ff; color: #4ad2ff; }
     .ed-grabbed { outline: 3px solid #ffeb3b; box-shadow: 0 0 12px #ffeb3b; z-index: 6; }
@@ -2016,7 +2017,7 @@
       if (edDrag && edDrag.type === 'range') {
         const a = Math.min(edDrag.startT, edDrag.endT), b = Math.max(edDrag.startT, edDrag.endT);
         const band = document.createElement('div');
-        band.className = 'ed-selband';
+        band.className = 'ed-selband' + (edDrag.action === 'delete' ? ' del' : '');
         band.style.top = yLine(b) + 'px';
         band.style.height = ((b - a) * EDITOR_PX_PER_SEC) + 'px';
         edNotes.appendChild(band);
@@ -2088,6 +2089,12 @@
       psf.onclick = () => setEditorNoteType('pasteflip');
       edPalette.appendChild(psf);
 
+      const rd = document.createElement('button');
+      rd.className = 'ed-pal ed-pal-clear' + (editorNoteType === 'rangedel' ? ' active' : '');
+      rd.textContent = '範囲削除';
+      rd.onclick = () => setEditorNoteType('rangedel');
+      edPalette.appendChild(rd);
+
       const er = document.createElement('button');
       er.className = 'ed-pal' + (editorNoteType === 'eraser' ? ' active' : '');
       er.textContent = '消しゴム';
@@ -2111,7 +2118,7 @@
     function setEditorNoteType(t) {
       editorNoteType = t;
       cancelLongDrag();
-      edScroll.classList.toggle('ed-noscroll', t === 'long' || t === 'rangecopy');  // ドラッグ操作中はタッチscroll停止
+      edScroll.classList.toggle('ed-noscroll', t === 'long' || t === 'rangecopy' || t === 'rangedel');  // ドラッグ操作中はタッチscroll停止
       rebuildPalette();
       renderEditorNotes();
     }
@@ -2176,6 +2183,15 @@
       edClipboard = { notes: sel.map(n => ({ lane: n.lane, relT: n.t - lo, type: n.type, dur: n.dur || 0, w: n.w || 1 })) };
       alert('コピーしました（' + sel.length + '個）。「貼り付け」を選んで置きたい場所をタップ');
     }
+    // 範囲[a,b]内のnoteを削除
+    function deleteRange(a, b) {
+      const lo = Math.min(a, b), hi = Math.max(a, b);
+      const before = editorChart.notes.length;
+      editorChart.notes = editorChart.notes.filter(n => !(n.t >= lo - 1e-6 && n.t <= hi + 1e-6));
+      renderEditorNotes();
+      if (editorChart.notes.length !== before) pushHistory();
+    }
+
     // クリップボードを時刻tを起点に貼り付け。flip=trueで左右反転
     function pasteClipboard(t, flip) {
       if (!edClipboard) { alert('先に「範囲コピー」でコピーしてね'); return; }
@@ -2225,10 +2241,10 @@
       const gRect = edGrid.getBoundingClientRect();
       const y = e.clientY - gRect.top;
 
-      if (editorNoteType === 'rangecopy') {                   // 範囲選択ドラッグ
+      if (editorNoteType === 'rangecopy' || editorNoteType === 'rangedel') {   // 範囲選択ドラッグ
         e.preventDefault();
         const t = snapT(tAtY(y));
-        edDrag = { type: 'range', startT: t, endT: t, lastClientX: e.clientX, lastClientY: e.clientY };
+        edDrag = { type: 'range', action: editorNoteType === 'rangedel' ? 'delete' : 'copy', startT: t, endT: t, lastClientX: e.clientX, lastClientY: e.clientY };
         edDrag.raf = requestAnimationFrame(dragLoop);
         renderEditorNotes();
         return;
@@ -2291,11 +2307,12 @@
     }
     function finishDrag() {
       if (edDrag.raf) cancelAnimationFrame(edDrag.raf);
-      if (edDrag.type === 'range') {            // 範囲選択完了→コピー
-        const a = edDrag.startT, b = edDrag.endT;
+      if (edDrag.type === 'range') {            // 範囲選択完了→コピー or 削除
+        const a = edDrag.startT, b = edDrag.endT, action = edDrag.action;
         edDrag = null;
         renderEditorNotes();
-        copyRange(a, b);
+        if (action === 'delete') deleteRange(a, b);
+        else copyRange(a, b);
         return;
       }
       if (edDrag.type === 'create-long') {
