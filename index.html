@@ -670,8 +670,9 @@
     }
 
     // ===== 譜面メーカー: 譜面の保存・一覧取得 =====
-    async function saveChart(chart) {
-      await addDoc(collection(db, 'charts'), {
+    // existingId があれば上書き更新（プレイ数等は保持）。無ければ新規作成しIDを返す
+    async function saveChart(chart, existingId) {
+      const content = {
         title:     chart.title,
         author:    chart.author,
         songId:    chart.songId,
@@ -680,8 +681,17 @@
         offset:    chart.offset,
         noteSpeed: chart.noteSpeed,
         notes:     chart.notes,
-        createdAt: serverTimestamp(),
-      });
+      };
+      if (existingId) {
+        try {
+          await updateDoc(doc(db, 'charts', existingId), content);   // 上書き(plays/clears/createdAtは保持)
+          return existingId;
+        } catch (e) {
+          console.error('update chart failed, creating new:', e);    // 元が消えていた等→新規作成にフォールバック
+        }
+      }
+      const ref = await addDoc(collection(db, 'charts'), { ...content, plays: 0, clears: 0, createdAt: serverTimestamp() });
+      return ref.id;
     }
     async function loadCharts() {
       const q = query(collection(db, 'charts'), orderBy('createdAt', 'desc'), limit(50));
@@ -1824,6 +1834,7 @@
 
     let editorChart    = null;   // {title, songId, chartType, bpm, offset, noteSpeed, notes:[]}
     let editorDraftId  = null;   // 編集中の下書きID（localStorage上）。新規はnull
+    let editorPublishedId = null; // みんなの譜面に公開済みのドキュメントID（再保存で上書き）
     let editorNoteType = 'normal';
     let editorWidth    = 1;      // 配置するnoteの横幅(レーン数 1〜4)
     let editorSubdiv   = 4;      // 4 | 8 | 16
@@ -2196,6 +2207,7 @@
         title: editorChart.title || '', songId: editorChart.songId, chartType: editorChart.chartType,
         bpm: editorChart.bpm, offset: editorChart.offset, noteSpeed: editorChart.noteSpeed || 0.6,
         notes: editorChart.notes.map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0, w: n.w || 1 })),
+        publishedId: editorPublishedId || null,
         updated: Date.now(),
       };
       const drafts = loadDrafts();
@@ -2244,11 +2256,13 @@
         notes: (d.notes || []).map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0, w: n.w || 1 })),
       };
       editorDraftId = d.id;
+      editorPublishedId = d.publishedId || null;
       openEditor();
     }
     function newDraft() {
       editorChart = null;
       editorDraftId = null;
+      editorPublishedId = null;
       openEditor();
     }
 
@@ -2399,9 +2413,11 @@
       editorChart.title = title;
       const btn = document.getElementById('ed-save');
       btn.disabled = true; btn.textContent = '保存中';
+      const wasPublished = !!editorPublishedId;
       try {
-        await saveChart(buildEditorChart());
-        alert('保存しました！「みんなの譜面」から遊べます');
+        editorPublishedId = await saveChart(buildEditorChart(), editorPublishedId);
+        autoSaveDraft();   // 公開IDを下書きにも記録
+        alert(wasPublished ? '上書き保存しました' : '保存しました！「みんなの譜面」から遊べます');
       } catch (e) {
         console.error('save chart error:', e);
         alert('保存に失敗しました');
