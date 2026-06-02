@@ -484,10 +484,10 @@
       overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
     }
     .browse-item {
-      display: flex; align-items: stretch; gap: 6px; width: 100%;
+      display: flex; flex-direction: column; gap: 6px; width: 100%;
     }
     .bi-play {
-      flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
       text-align: left; padding: 12px 14px; border-radius: 10px;
       border: 1px solid #555; background: #1e1e1e; color: #fff; cursor: pointer;
     }
@@ -495,12 +495,40 @@
     .bi-title { font-size: 16px; font-weight: 700; }
     .bi-sub   { font-size: 12px; color: #aaa; }
     .bi-stat  { font-size: 12px; color: #7fd0ff; }
-    .bi-del {
-      width: 48px; flex: none; border-radius: 10px;
-      border: 1px solid #a44; background: #2a1414; color: #ff8877;
-      font-size: 18px; cursor: pointer;
+    .bi-actions { display: flex; gap: 6px; }
+    .bi-actions button {
+      flex: 1; padding: 8px; border-radius: 8px;
+      border: 1px solid #555; background: #222; color: #ddd; font-size: 13px; cursor: pointer;
     }
-    .bi-del:disabled { opacity: 0.4; }
+    .bi-like.liked { color: #ff5c8a; border-color: #ff5c8a; }
+    .bi-del { color: #ff8877; border-color: #a44 !important; background: #2a1414 !important; }
+    .bi-actions button:disabled { opacity: 0.4; }
+
+    /* ===== コメント画面 ===== */
+    #screen-comments {
+      background: #111; color: #fff;
+      flex-direction: column; align-items: center; justify-content: flex-start;
+      padding: 20px 12px; gap: 12px;
+    }
+    #comments-title { font-size: 22px; font-weight: 700; color: #ff69b4; }
+    #comments-list {
+      width: 100%; max-width: 360px; flex: 1; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .cm-item { padding: 10px 12px; border-radius: 8px; background: #1e1e1e; border: 1px solid #444; }
+    .cm-author { font-size: 12px; color: #ff9ec4; font-weight: 700; }
+    .cm-text   { font-size: 14px; color: #fff; word-break: break-word; }
+    #comments-form { width: 100%; max-width: 360px; display: flex; gap: 6px; }
+    #comment-input { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #555; background: #222; color: #fff; }
+    #comment-send {
+      padding: 10px 16px; border-radius: 8px; border: none;
+      background: #ff69b4; color: #111; font-weight: 700; cursor: pointer;
+    }
+    #comments-back {
+      padding: 10px 24px; font-size: 15px; font-weight: 700;
+      border-radius: 8px; border: 2px solid #aaa; background: transparent; color: #ddd; cursor: pointer;
+    }
+    #comments-list .browse-empty { color: #aaa; text-align: center; padding: 20px; }
     .browse-empty { color: #aaa; text-align: center; padding: 20px; }
     #browse-buttons, #drafts-buttons { display: flex; gap: 10px; }
     #browse-buttons button, #drafts-buttons button {
@@ -642,6 +670,16 @@
     </div>
   </div>
 
+  <div id="screen-comments" class="screen">
+    <h2 id="comments-title">コメント</h2>
+    <div id="comments-list"></div>
+    <div id="comments-form">
+      <input id="comment-input" type="text" placeholder="コメントを書く" maxlength="100">
+      <button id="comment-send">送信</button>
+    </div>
+    <button id="comments-back">戻る</button>
+  </div>
+
   <script type="module">
     // ===== Firebase =====
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
@@ -711,6 +749,27 @@
       if (!id) return;
       updateDoc(doc(db, 'charts', id), { [field]: increment(1) }).catch(e => console.error('stat error:', e));
     }
+    // いいね: 端末ごとに1回（localStorageで管理）。countはFirestore
+    function loadLikes() { try { return JSON.parse(localStorage.getItem('humen_likes') || '[]'); } catch (e) { return []; } }
+    function hasLiked(id) { return loadLikes().includes(id); }
+    function setLiked(id, on) {
+      const a = loadLikes().filter(x => x !== id);
+      if (on) a.push(id);
+      localStorage.setItem('humen_likes', JSON.stringify(a));
+    }
+    async function likeChart(id, delta) {
+      await updateDoc(doc(db, 'charts', id), { likes: increment(delta) });
+    }
+    // コメント: サブコレクション charts/{id}/comments
+    async function loadComments(chartId) {
+      const q = query(collection(db, 'charts', chartId, 'comments'), orderBy('createdAt', 'desc'), limit(100));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => d.data());
+    }
+    async function addComment(chartId, author, text) {
+      await addDoc(collection(db, 'charts', chartId, 'comments'), { author, text, createdAt: serverTimestamp() });
+      updateDoc(doc(db, 'charts', chartId), { commentsCount: increment(1) }).catch(() => {});
+    }
     function escapeHtml(s) {
       return String(s || '').replace(/[&<>"']/g, c =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -765,6 +824,7 @@
       editor:   document.getElementById('screen-editor'),
       browse:   document.getElementById('screen-browse'),
       drafts:   document.getElementById('screen-drafts'),
+      comments: document.getElementById('screen-comments'),
     };
     const hudScore      = document.getElementById('hud-score');
     const hudTimer      = document.getElementById('hud-timer');
@@ -2556,6 +2616,35 @@
           play.addEventListener('click', () => playCommunityChart(c));
           row.appendChild(play);
 
+          const actions = document.createElement('div');
+          actions.className = 'bi-actions';
+
+          // いいね（端末ごとに1回・もう一度で取り消し）
+          const like = document.createElement('button');
+          like.className = 'bi-like';
+          let likeCount = c.likes || 0;
+          const renderLike = () => {
+            like.classList.toggle('liked', hasLiked(c.id));
+            like.textContent = (hasLiked(c.id) ? '♥ ' : '♡ ') + likeCount;
+          };
+          renderLike();
+          like.addEventListener('click', async () => {
+            const on = !hasLiked(c.id);
+            setLiked(c.id, on);
+            likeCount = Math.max(0, likeCount + (on ? 1 : -1));
+            renderLike();
+            try { await likeChart(c.id, on ? 1 : -1); }
+            catch (e) { console.error('like error:', e); }
+          });
+          actions.appendChild(like);
+
+          // コメント
+          const cm = document.createElement('button');
+          cm.className = 'bi-comment';
+          cm.textContent = '💬 ' + (c.commentsCount || 0);
+          cm.addEventListener('click', () => openComments(c));
+          actions.appendChild(cm);
+
           // 削除は作者本人(ニックネーム一致)のみ
           if (c.author && nickname && c.author === nickname) {
             const del = document.createElement('button');
@@ -2567,8 +2656,9 @@
               try { await deleteChart(c.id); row.remove(); }
               catch (e) { console.error('delete chart error:', e); alert('削除に失敗しました'); del.disabled = false; }
             });
-            row.appendChild(del);
+            actions.appendChild(del);
           }
+          row.appendChild(actions);
           list.appendChild(row);
         });
       } catch (e) {
@@ -2590,6 +2680,50 @@
       STATE = 'start';
       setScreen('start');
     });
+
+    // ===== コメント画面 =====
+    let commentsChart = null;
+    async function openComments(c) {
+      commentsChart = c;
+      STATE = 'comments';
+      setScreen('comments');
+      document.getElementById('comments-title').textContent = c.title || 'コメント';
+      const list = document.getElementById('comments-list');
+      list.innerHTML = '<div class="browse-empty">読み込み中...</div>';
+      try {
+        const comments = await loadComments(c.id);
+        if (comments.length === 0) { list.innerHTML = '<div class="browse-empty">まだコメントがありません</div>'; return; }
+        list.innerHTML = '';
+        comments.forEach(cm => {
+          const el = document.createElement('div');
+          el.className = 'cm-item';
+          el.innerHTML = `<div class="cm-author">${escapeHtml(cm.author || '名無し')}</div><div class="cm-text">${escapeHtml(cm.text || '')}</div>`;
+          list.appendChild(el);
+        });
+      } catch (e) {
+        console.error('load comments error:', e);
+        list.innerHTML = '<div class="browse-empty">読み込みに失敗しました</div>';
+      }
+    }
+    document.getElementById('comment-send').addEventListener('click', async () => {
+      if (!commentsChart) return;
+      const input = document.getElementById('comment-input');
+      const text = input.value.trim();
+      if (!text) return;
+      const btn = document.getElementById('comment-send');
+      btn.disabled = true;
+      try {
+        await addComment(commentsChart.id, nickname || '名無し', text);
+        input.value = '';
+        if (commentsChart.commentsCount !== undefined) commentsChart.commentsCount++;
+        await openComments(commentsChart);   // 再読み込み
+      } catch (e) {
+        console.error('add comment error:', e);
+        alert('コメントの送信に失敗しました');
+      }
+      btn.disabled = false;
+    });
+    document.getElementById('comments-back').addEventListener('click', () => openBrowse());
 
     // ===== 初期表示 =====
     setScreen('start');
