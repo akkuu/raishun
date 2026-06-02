@@ -778,19 +778,32 @@
     let nickname = '';
 
     // ===== 音声 (Web Audio API でラグゼロ) =====
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
     let tapBuffer = null;
+
+    // 効果音先頭の無音をカット（押した瞬間に鳴るようにしてラグ感を減らす）
+    function trimSilence(buf, threshold = 0.008) {
+      const ch0 = buf.getChannelData(0);
+      let start = 0;
+      for (let i = 0; i < ch0.length; i++) { if (Math.abs(ch0[i]) > threshold) { start = i; break; } }
+      if (start <= 0) return buf;
+      const out = audioCtx.createBuffer(buf.numberOfChannels, buf.length - start, buf.sampleRate);
+      for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+        out.getChannelData(ch).set(buf.getChannelData(ch).subarray(start));
+      }
+      return out;
+    }
 
     fetch('Voishun.mp3')
       .then(r => r.arrayBuffer())
       .then(buf => audioCtx.decodeAudioData(buf))
-      .then(decoded => { tapBuffer = decoded; });
+      .then(decoded => { tapBuffer = trimSilence(decoded); });
 
     let gahoBuffer = null;
     fetch('gaho2.mp3')
       .then(r => r.arrayBuffer())
       .then(buf => audioCtx.decodeAudioData(buf))
-      .then(decoded => { gahoBuffer = decoded; });
+      .then(decoded => { gahoBuffer = trimSilence(decoded); });
 
     const bgmAudio = new Audio('Kurenaishin.mp3');
     bgmAudio.loop = true;
