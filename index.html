@@ -1443,6 +1443,7 @@
           el.style.left   = (cn.lane * laneW + 2) + 'px';
           el.style.width  = (w * laneW - 4) + 'px';
           el.style.right  = 'auto';
+          el.style.zIndex = '4';           // 区切り線(z-index1)より前面に
           laneContainer.appendChild(el);   // 8レーン＋可変幅のため直接配置
           fallingNotes.push({ lane: cn.lane, w, el, noteStart, t: cn.t,
             type: cn.type, dur: cn.dur || 0, noteH, long: isLong, held: false, activated: false });
