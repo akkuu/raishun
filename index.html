@@ -399,6 +399,9 @@
     }
     .ed-subdiv.active { background: #fff; color: #111; }
     .ed-width.active  { background: #ff69b4; color: #111; }
+    #ed-width-preview { display: inline-flex; gap: 1px; vertical-align: middle; }
+    .wp-seg { width: 9px; height: 16px; background: #333; border: 1px solid #555; box-sizing: border-box; }
+    .wp-seg.on { background: #4aa3ff; border-color: #cfe6ff; }
     #lane-container.lc8 .lane { border-right: none; }
 
     #editor-main { flex: 1; display: flex; gap: 6px; min-height: 0; }
@@ -573,6 +576,11 @@
       <button class="ed-width" data-width="2">2</button>
       <button class="ed-width" data-width="3">3</button>
       <button class="ed-width" data-width="4">4</button>
+      <button class="ed-width" data-width="5">5</button>
+      <button class="ed-width" data-width="6">6</button>
+      <button class="ed-width" data-width="7">7</button>
+      <button class="ed-width" data-width="8">8</button>
+      <span id="ed-width-preview" title="今のノーツの幅"></span>
     </div>
     <div id="editor-main">
       <div id="editor-palette"></div>
@@ -2330,10 +2338,22 @@
         layoutEditorGrid();
       });
     });
+    // 幅プレビュー: 8セグメントのうち先頭editorWidth個を点灯（今のノーツの幅が一目で分かる）
+    const edWidthPreview = document.getElementById('ed-width-preview');
+    for (let i = 0; i < EDLANES; i++) {
+      const seg = document.createElement('span');
+      seg.className = 'wp-seg';
+      edWidthPreview.appendChild(seg);
+    }
+    function updateWidthPreview() {
+      [...edWidthPreview.children].forEach((seg, i) => seg.classList.toggle('on', i < editorWidth));
+    }
+    updateWidthPreview();
     document.querySelectorAll('.ed-width').forEach(b => {
       b.addEventListener('click', () => {
         editorWidth = parseInt(b.dataset.width, 10);
         document.querySelectorAll('.ed-width').forEach(x => x.classList.toggle('active', x === b));
+        updateWidthPreview();
       });
     });
     edUndoBtn.addEventListener('click', edUndo);
