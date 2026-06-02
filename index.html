@@ -454,6 +454,33 @@
     }
     #ed-play.playing { background: #ff69b4; color: #111; }
     #editor-side button:disabled { opacity: 0.35; }
+
+    /* ===== みんなの譜面（一覧） ===== */
+    #screen-browse {
+      background: #111; color: #fff;
+      flex-direction: column; align-items: center; justify-content: flex-start;
+      padding: 20px 12px; gap: 14px;
+    }
+    #browse-title { font-size: 26px; font-weight: 700; letter-spacing: 2px; color: #ff69b4; }
+    #browse-list {
+      width: 100%; max-width: 360px; flex: 1;
+      overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+    }
+    .browse-item {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+      width: 100%; text-align: left;
+      padding: 12px 14px; border-radius: 10px;
+      border: 1px solid #555; background: #1e1e1e; color: #fff; cursor: pointer;
+    }
+    .browse-item:hover { background: #2a2a2a; }
+    .bi-title { font-size: 16px; font-weight: 700; }
+    .bi-sub   { font-size: 12px; color: #aaa; }
+    #browse-list .browse-empty { color: #aaa; text-align: center; padding: 20px; }
+    #browse-buttons { display: flex; gap: 10px; }
+    #browse-buttons button {
+      padding: 12px 24px; font-size: 15px; font-weight: 700;
+      border-radius: 8px; border: 2px solid #aaa; background: transparent; color: #ddd; cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -467,6 +494,7 @@
       <button class="btn-mode" id="btn-mode-music">ミュージック</button>
       <button class="btn-mode" id="btn-mode-piano">ピアノタイル</button>
       <button class="btn-mode" id="btn-mode-maker">譜面メーカー</button>
+      <button class="btn-mode" id="btn-mode-community">みんなの譜面</button>
     </div>
     <div id="update-info">
       <div id="update-info-title">アップデート情報</div>
@@ -551,6 +579,15 @@
     </div>
   </div>
 
+  <div id="screen-browse" class="screen">
+    <h2 id="browse-title">みんなの譜面</h2>
+    <div id="browse-list"></div>
+    <div id="browse-buttons">
+      <button id="browse-reload">更新</button>
+      <button id="browse-back">スタート画面へ</button>
+    </div>
+  </div>
+
   <script type="module">
     // ===== Firebase =====
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
@@ -582,6 +619,30 @@
       const q = query(collection(db, collName), orderBy('score', 'desc'), limit(10));
       const snap = await getDocs(q);
       return snap.docs.map(d => d.data());
+    }
+
+    // ===== 譜面メーカー: 譜面の保存・一覧取得 =====
+    async function saveChart(chart) {
+      await addDoc(collection(db, 'charts'), {
+        title:     chart.title,
+        author:    chart.author,
+        songId:    chart.songId,
+        chartType: chart.chartType,
+        bpm:       chart.bpm,
+        offset:    chart.offset,
+        noteSpeed: chart.noteSpeed,
+        notes:     chart.notes,
+        createdAt: serverTimestamp(),
+      });
+    }
+    async function loadCharts() {
+      const q = query(collection(db, 'charts'), orderBy('createdAt', 'desc'), limit(50));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
     let nickname = '';
@@ -631,6 +692,7 @@
       game:     document.getElementById('screen-game'),
       gameover: document.getElementById('screen-gameover'),
       editor:   document.getElementById('screen-editor'),
+      browse:   document.getElementById('screen-browse'),
     };
     const hudScore      = document.getElementById('hud-score');
     const hudTimer      = document.getElementById('hud-timer');
@@ -2108,12 +2170,68 @@
       const fromT = Math.max(0, tAtY(edScroll.scrollTop + edScroll.clientHeight) - 1.0);
       startChartGame(buildEditorChart(), fromT);
     });
-    document.getElementById('ed-save').addEventListener('click', () => {
-      alert('保存はPhaseでこのあとFirebaseに繋ぎます（現在は未実装）');
+    document.getElementById('ed-save').addEventListener('click', async () => {
+      stopEditorPreview();
+      cancelLongDrag();
+      syncEditorMeta();
+      if (editorChart.notes.length === 0) { alert('ノーツを置いてから保存してね'); return; }
+      const title = (prompt('譜面の名前を入力してください', editorChart.title || '') || '').trim();
+      if (!title) return;
+      editorChart.title = title;
+      const btn = document.getElementById('ed-save');
+      btn.disabled = true; btn.textContent = '保存中';
+      try {
+        await saveChart(buildEditorChart());
+        alert('保存しました！「みんなの譜面」から遊べます');
+      } catch (e) {
+        console.error('save chart error:', e);
+        alert('保存に失敗しました');
+      }
+      btn.disabled = false; btn.textContent = '保存';
     });
     document.getElementById('ed-back').addEventListener('click', () => {
       stopEditorPreview();
       cancelLongDrag();
+      STATE = 'start';
+      setScreen('start');
+    });
+
+    // ===== みんなの譜面（一覧→再生）=====
+    async function openBrowse() {
+      stopBGM(); stopChartAudio();
+      STATE = 'browse';
+      setScreen('browse');
+      const list = document.getElementById('browse-list');
+      list.innerHTML = '<div class="browse-empty">読み込み中...</div>';
+      try {
+        const charts = await loadCharts();
+        if (charts.length === 0) { list.innerHTML = '<div class="browse-empty">まだ譜面がありません</div>'; return; }
+        list.innerHTML = '';
+        charts.forEach(c => {
+          const song = SONGS[c.songId];
+          const item = document.createElement('button');
+          item.className = 'browse-item';
+          item.innerHTML =
+            `<span class="bi-title">${escapeHtml(c.title)}</span>` +
+            `<span class="bi-sub">${c.chartType === 'music' ? 'ミュージック' : 'ピアノ'} / ${escapeHtml(song ? song.title : c.songId)} / ${escapeHtml(c.author || '')}</span>`;
+          item.addEventListener('click', () => playCommunityChart(c));
+          list.appendChild(item);
+        });
+      } catch (e) {
+        console.error('load charts error:', e);
+        list.innerHTML = '<div class="browse-empty">読み込みに失敗しました</div>';
+      }
+    }
+    function playCommunityChart(c) {
+      chartFromEditor = false;   // リザルトからはスタート画面へ
+      startChartGame(c, 0);
+    }
+    document.getElementById('btn-mode-community').addEventListener('click', () => {
+      nickname = document.getElementById('nickname-input').value.trim();
+      openBrowse();
+    });
+    document.getElementById('browse-reload').addEventListener('click', openBrowse);
+    document.getElementById('browse-back').addEventListener('click', () => {
       STATE = 'start';
       setScreen('start');
     });
