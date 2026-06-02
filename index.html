@@ -455,14 +455,14 @@
     #ed-play.playing { background: #ff69b4; color: #111; }
     #editor-side button:disabled { opacity: 0.35; }
 
-    /* ===== みんなの譜面（一覧） ===== */
-    #screen-browse {
+    /* ===== みんなの譜面 / 作りかけ（一覧） ===== */
+    #screen-browse, #screen-drafts {
       background: #111; color: #fff;
       flex-direction: column; align-items: center; justify-content: flex-start;
       padding: 20px 12px; gap: 14px;
     }
-    #browse-title { font-size: 26px; font-weight: 700; letter-spacing: 2px; color: #ff69b4; }
-    #browse-list {
+    #browse-title, #drafts-title { font-size: 26px; font-weight: 700; letter-spacing: 2px; color: #ff69b4; }
+    #browse-list, #drafts-list {
       width: 100%; max-width: 360px; flex: 1;
       overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
     }
@@ -484,12 +484,13 @@
       font-size: 18px; cursor: pointer;
     }
     .bi-del:disabled { opacity: 0.4; }
-    #browse-list .browse-empty { color: #aaa; text-align: center; padding: 20px; }
-    #browse-buttons { display: flex; gap: 10px; }
-    #browse-buttons button {
+    .browse-empty { color: #aaa; text-align: center; padding: 20px; }
+    #browse-buttons, #drafts-buttons { display: flex; gap: 10px; }
+    #browse-buttons button, #drafts-buttons button {
       padding: 12px 24px; font-size: 15px; font-weight: 700;
       border-radius: 8px; border: 2px solid #aaa; background: transparent; color: #ddd; cursor: pointer;
     }
+    #drafts-new { border-color: #ff69b4 !important; color: #ff69b4 !important; }
   </style>
 </head>
 <body>
@@ -595,6 +596,15 @@
     <div id="browse-buttons">
       <button id="browse-reload">更新</button>
       <button id="browse-back">スタート画面へ</button>
+    </div>
+  </div>
+
+  <div id="screen-drafts" class="screen">
+    <h2 id="drafts-title">作りかけの譜面</h2>
+    <div id="drafts-list"></div>
+    <div id="drafts-buttons">
+      <button id="drafts-new">＋ 新規作成</button>
+      <button id="drafts-back">スタート画面へ</button>
     </div>
   </div>
 
@@ -710,6 +720,7 @@
       gameover: document.getElementById('screen-gameover'),
       editor:   document.getElementById('screen-editor'),
       browse:   document.getElementById('screen-browse'),
+      drafts:   document.getElementById('screen-drafts'),
     };
     const hudScore      = document.getElementById('hud-score');
     const hudTimer      = document.getElementById('hud-timer');
@@ -1699,7 +1710,12 @@
 
     document.getElementById('btn-mode-maker').addEventListener('click', () => {
       nickname = document.getElementById('nickname-input').value.trim();
-      openEditor();
+      openDrafts();
+    });
+    document.getElementById('drafts-new').addEventListener('click', newDraft);
+    document.getElementById('drafts-back').addEventListener('click', () => {
+      STATE = 'start';
+      setScreen('start');
     });
 
     document.getElementById('btn-retry').addEventListener('click', () => {
@@ -1735,6 +1751,7 @@
     const EDITOR_NOTE_H     = 24;    // 通常noteの表示高さ(px)
 
     let editorChart    = null;   // {title, songId, chartType, bpm, offset, noteSpeed, notes:[]}
+    let editorDraftId  = null;   // 編集中の下書きID（localStorage上）。新規はnull
     let editorNoteType = 'normal';
     let editorSubdiv   = 4;      // 4 | 8 | 16
     let editorLongStart= null;   // （旧）未使用
@@ -2072,6 +2089,79 @@
     }
 
     // ----- エディタを開く -----
+    // ----- 下書き（この端末に保存。複数を並行管理）-----
+    const DRAFTS_KEY = 'humen_drafts';
+    function loadDrafts() {
+      try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || '[]'); }
+      catch (e) { return []; }
+    }
+    function saveDrafts(arr) {
+      try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(arr)); }
+      catch (e) { console.error('draft save error:', e); alert('下書きの保存に失敗しました（保存容量不足かも）'); }
+    }
+    function autoSaveDraft() {   // 編集中の譜面を下書きへ反映（noteが空なら何もしない）
+      if (!editorChart || editorChart.notes.length === 0) return;
+      syncEditorMeta();
+      const data = {
+        title: editorChart.title || '', songId: editorChart.songId, chartType: editorChart.chartType,
+        bpm: editorChart.bpm, offset: editorChart.offset, noteSpeed: editorChart.noteSpeed || 0.6,
+        notes: editorChart.notes.map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0 })),
+        updated: Date.now(),
+      };
+      const drafts = loadDrafts();
+      if (!editorDraftId) editorDraftId = 'd' + Date.now() + Math.random().toString(36).slice(2, 6);
+      const i = drafts.findIndex(d => d.id === editorDraftId);
+      if (i >= 0) drafts[i] = { ...data, id: editorDraftId };
+      else drafts.push({ ...data, id: editorDraftId });
+      saveDrafts(drafts);
+    }
+    function openDrafts() {
+      stopBGM(); stopChartAudio(); stopEditorPreview();
+      STATE = 'drafts';
+      setScreen('drafts');
+      const list = document.getElementById('drafts-list');
+      const drafts = loadDrafts().sort((a, b) => (b.updated || 0) - (a.updated || 0));
+      if (drafts.length === 0) { list.innerHTML = '<div class="browse-empty">作りかけはありません。「＋新規作成」から作れます</div>'; return; }
+      list.innerHTML = '';
+      drafts.forEach(d => {
+        const song = SONGS[d.songId];
+        const row = document.createElement('div');
+        row.className = 'browse-item';
+        const open = document.createElement('button');
+        open.className = 'bi-play';
+        const dateStr = d.updated ? new Date(d.updated).toLocaleDateString() : '';
+        open.innerHTML =
+          `<span class="bi-title">${escapeHtml(d.title || '無題')}</span>` +
+          `<span class="bi-sub">${d.chartType === 'music' ? 'ミュージック' : 'ピアノ'} / ${escapeHtml(song ? song.title : d.songId)} / ノーツ${d.notes ? d.notes.length : 0} / ${dateStr}</span>`;
+        open.addEventListener('click', () => editDraft(d));
+        row.appendChild(open);
+        const del = document.createElement('button');
+        del.className = 'bi-del';
+        del.textContent = '🗑';
+        del.addEventListener('click', () => {
+          if (!confirm(`下書き「${d.title || '無題'}」を削除しますか？`)) return;
+          saveDrafts(loadDrafts().filter(x => x.id !== d.id));
+          row.remove();
+        });
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+    }
+    function editDraft(d) {
+      editorChart = {
+        title: d.title || '', songId: d.songId, chartType: d.chartType,
+        bpm: d.bpm, offset: d.offset, noteSpeed: d.noteSpeed || 0.6,
+        notes: (d.notes || []).map(n => ({ lane: n.lane, t: n.t, type: n.type, dur: n.dur || 0 })),
+      };
+      editorDraftId = d.id;
+      openEditor();
+    }
+    function newDraft() {
+      editorChart = null;
+      editorDraftId = null;
+      openEditor();
+    }
+
     function openEditor() {
       stopBGM(); stopChartAudio(); stopEditorPreview();
       if (!editorChart) {
@@ -2211,18 +2301,16 @@
       btn.disabled = false; btn.textContent = '保存';
     });
     document.getElementById('ed-new').addEventListener('click', () => {
-      if (editorChart && editorChart.notes.length > 0 &&
-          !confirm('新しい譜面を作ります。今の譜面（未保存なら消えます）をリセットしてよいですか？')) return;
       stopEditorPreview();
       cancelLongDrag();
-      editorChart = null;   // openEditorが新規作成する
-      openEditor();
+      autoSaveDraft();   // 今の作りかけを下書きに保存してから新規
+      newDraft();
     });
     document.getElementById('ed-back').addEventListener('click', () => {
       stopEditorPreview();
       cancelLongDrag();
-      STATE = 'start';
-      setScreen('start');
+      autoSaveDraft();   // 戻るときに自動で下書き保存
+      openDrafts();
     });
 
     // ===== みんなの譜面（一覧→再生）=====
