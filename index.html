@@ -465,6 +465,7 @@
       background: #333; color: #fff; font-size: 12px; cursor: pointer;
     }
     #ed-play.playing { background: #ff69b4; color: #111; }
+    #ed-publish { border-color: #ff69b4; color: #ff69b4; }
     #editor-side button:disabled { opacity: 0.35; }
 
     /* ===== みんなの譜面 / 作りかけ（一覧） ===== */
@@ -612,6 +613,7 @@
         <button id="ed-test">最初から</button>
         <button id="ed-test-here">ここから</button>
         <button id="ed-save">保存</button>
+        <button id="ed-publish">公開</button>
         <button id="ed-new">新規</button>
         <button id="ed-back">戻る</button>
       </div>
@@ -2403,26 +2405,36 @@
       const fromT = Math.max(0, tAtY(edScroll.scrollTop + edScroll.clientHeight) - 1.0);
       startChartGame(buildEditorChart(), fromT);
     });
-    document.getElementById('ed-save').addEventListener('click', async () => {
+    // 保存 = 自分の作りかけ一覧にだけ保存（公開しない）
+    document.getElementById('ed-save').addEventListener('click', () => {
       stopEditorPreview();
       cancelLongDrag();
       syncEditorMeta();
       if (editorChart.notes.length === 0) { alert('ノーツを置いてから保存してね'); return; }
-      const title = (prompt('譜面の名前を入力してください', editorChart.title || '') || '').trim();
+      autoSaveDraft();
+      alert('保存しました（自分の作りかけ一覧に入ります）');
+    });
+    // 公開 = みんなの譜面に出す（再公開で上書き）
+    document.getElementById('ed-publish').addEventListener('click', async () => {
+      stopEditorPreview();
+      cancelLongDrag();
+      syncEditorMeta();
+      if (editorChart.notes.length === 0) { alert('ノーツを置いてから公開してね'); return; }
+      const title = (prompt('公開する譜面の名前を入力してください', editorChart.title || '') || '').trim();
       if (!title) return;
       editorChart.title = title;
-      const btn = document.getElementById('ed-save');
-      btn.disabled = true; btn.textContent = '保存中';
+      const btn = document.getElementById('ed-publish');
+      btn.disabled = true; btn.textContent = '公開中';
       const wasPublished = !!editorPublishedId;
       try {
         editorPublishedId = await saveChart(buildEditorChart(), editorPublishedId);
         autoSaveDraft();   // 公開IDを下書きにも記録
-        alert(wasPublished ? '上書き保存しました' : '保存しました！「みんなの譜面」から遊べます');
+        alert(wasPublished ? '公開を更新しました' : '公開しました！「みんなの譜面」に出ます');
       } catch (e) {
-        console.error('save chart error:', e);
-        alert('保存に失敗しました');
+        console.error('publish chart error:', e);
+        alert('公開に失敗しました');
       }
-      btn.disabled = false; btn.textContent = '保存';
+      btn.disabled = false; btn.textContent = '公開';
     });
     document.getElementById('ed-new').addEventListener('click', () => {
       stopEditorPreview();
