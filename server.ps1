@@ -9,6 +9,7 @@ $mimeTypes = @{
     '.jpg'  = 'image/jpeg'
     '.jpeg' = 'image/jpeg'
     '.mp3'  = 'audio/mpeg'
+    '.m4a'  = 'audio/mp4'
     '.ico'  = 'image/x-icon'
 }
 
